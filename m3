@@ -78,16 +78,6 @@ def main(argv):
     for line in stream:
         print line.join(options).line
 
-def keep(options, stream, columns):
-    "Acts like cut(1), keeping only the listed columns"
-    for line in stream:
-        newfields = []
-        for index, field in enumerate(line.split(options).fields):
-            if columns.has(index):
-                newfields.append(field)
-        line.set(newfields)
-        yield line
-
 def group(options, stream, columns):
     groups = {}
     for line in stream:
@@ -105,69 +95,4 @@ def group(options, stream, columns):
         for line in group:
             yield line.renumber(number)
             number += 1
-
-@stage(name=["headtail", "ht"], args=[])
-def headtail(options, stream):
-    "Summarize output, first and last ten lines"
-    count = 0
-    queue = deque()
-    for line in stream:
-        count += 1
-        if count <= 10:
-            yield line
-        if len(queue) == 10:
-            queue.popleft()
-        queue.append(line)
-    if count > 0:
-        yield Line("--", queue[0].number - 1)
-        for line in queue:
-            yield line
-
-@stage(name="strip", args=[[cast(str), "characters to remove"]])
-def strip(options, stream, chars):
-    for line in stream:
-        newfields = map(lambda field: field.translate(None, chars))
-        yield line.set(newfields)
-
-####################################################################################################
-#
-# Command definition
-
-def stage(name, args):
-    def wrap(f):
-        return f
-    return wrap
-
-####################################################################################################
-#
-# Arg parsing
-
-def cast(fn):
-    """
-    Returns an arg parser that tries to interpret the string via the given function;
-    may be a built-in like str / int / float, or a custom function, which can either
-    throw or return None on failure.
-    """
-    def parse(arg, docstr):
-        try:
-            return fn(arg)
-        except:
-            return None
-    return parse
-
-def oneof(choices):
-    """
-    Returns an arg parser that verifies the arg is in the given list.
-    """
-    def parse(arg, docstr):
-        if arg in choices:
-            return arg
-        return None
-    return parse
-
-####################################################################################################
-
-####################################################################################################
-
-main(sys.argv[1:])
 

@@ -1,0 +1,164 @@
+#!/usr/bin/env python2.7
+
+import collections as co
+import re
+import sys
+
+NUMBER = re.compile("^\d+$")
+RANGE = re.compile("^(\d+)-(\d+)$")
+
+Step = co.namedtuple("Step", "fn name names arglist")
+
+STEPS = {}
+
+####################################################################################################
+#
+# Driver
+
+def main(args):
+    args = co.deque(args)
+    def readinput():
+        for num, line in enumerate(sys.stdin):
+            yield num, line.rstrip()
+    input = Reader(readinput())
+    while len(args) > 0:
+        stepname = args.popleft()
+        if not stepname in STEPS:
+            die("Unknown step name: " + stepname)
+        step = STEPS[stepname]
+        stepargs = []
+        for argfn, doc in step.arglist:
+            if len(args) == 0:
+                die("Missing argument (%s) to %s" % (doc, stepname))
+            arg = args.popleft()
+            steparg = argfn(arg)
+            if steparg is None:
+                die("Expected arg (%s) to %s but got %s" % (doc, stepname, arg))
+            stepargs.append(steparg)
+        input = Reader(step.fn(None, input, *stepargs))
+    for num, line in input.lines:
+        print line
+
+class Reader:
+    def __init__(self, input):
+        self.items = input
+        self.lines = self.readlines(input)
+        self.rows = self.readrows(input)
+    def readlines(self, input):
+        for num, line in input:
+            print "RL yielding", line
+            if type(line) == str:
+                yield num, line
+            else:
+                yield num, "\t".join(line)
+    def readrows(self, input):
+        for num, line in input:
+            print "RR yielding", line
+            if type(line) == list:
+                yield num, line
+            elif "\t" in line:
+                yield num, line.split("\t")
+            else:
+                yield num, line.split()
+
+####################################################################################################
+#
+# Arg parsers
+
+def oneof(choices):
+    """
+    Returns an arg parser that verifies the arg is in the given list.
+    """
+    def parse(arg):
+        if arg in choices:
+            return arg
+        return None
+    return parse
+
+def columns(arg):
+    """
+    An arg parser that handles column lists e.g. "1,3-5,8".  These are returned as an array
+    of all the implied ints, but zero-based.
+    """
+    columns = []
+    for nums in arg.replace("c", "").split(","):
+        if NUMBER.match(nums):
+            columns.append(int(nums) - 1)
+        else:
+            m = RANGE.match(nums)
+            if m:
+                columns += [x for x in range(int(m.group(1)) - 1, int(m.group(2)))]
+            else:
+                die("Bad column expression: " + expr)
+    return columns
+
+def number(arg):
+    """
+    An arg parser that handles ints and floats, possibly with commas.
+    """
+    if "," in arg:
+        arg = arg.translate(None, ",")
+    if "." in arg or "e" in arg:
+        return float(arg)
+    return int(arg)
+
+####################################################################################################
+#
+# Step definitions
+
+def step(name, args):
+    names = name if type(name) == list else [name]
+    def wrap(f):
+        step = Step(f, names[0], names, args)
+        for name in names:
+            STEPS[name] = step
+        return f
+    return wrap
+
+@step(name="strip", args=[[str, "characters to remove"]])
+def strip(meta, input, chars):
+    for num, row in input.rows:
+        yield num, map(lambda cell: cell.translate(None, chars))
+
+@step(name=["headtail", "ht"], args=[])
+def headtail(meta, input):
+    count = 0
+    queue = co.deque()
+    yield 1, "a"
+    yield 2, "b"
+    return
+    for num, item in input.items:
+        print "ht got", num, item
+        count += 1
+        if count <= 10:
+            yield num, item
+        else:
+            if len(queue) == 10:
+                queue.popleft()
+            queue.append(item)
+    if len(queue) > 0:
+        yield 11, "--"
+        for index, item in enumerate(queue):
+            yield 12 + index, item
+
+@step(name="keep", args=[[columns, "column numbers to keep"]])
+def keep(meta, input, columns):
+    for num, row in input.rows:
+        newrow = []
+        for index in columns:
+            if index < len(row):
+                newrow.append(row[index])
+        yield num, newrow
+
+####################################################################################################
+#
+# Misc utils
+
+def die(message):
+    sys.stderr.write(message + "\n")
+    sys.exit(1)
+
+####################################################################################################
+
+main(sys.argv[1:])
+
