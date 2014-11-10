@@ -7,7 +7,7 @@ import sys
 NUMBER = re.compile("^\d+$")
 RANGE = re.compile("^(\d+)-(\d+)$")
 
-Step = co.namedtuple("Step", "fn name names arglist")
+Step = co.namedtuple("Step", "fn name names argspecs")
 
 STEPS = {}
 
@@ -23,18 +23,8 @@ def main(args):
     input = Reader(readinput())
     while len(args) > 0:
         stepname = args.popleft()
-        if not stepname in STEPS:
-            die("Unknown step name: " + stepname)
-        step = STEPS[stepname]
-        stepargs = []
-        for argfn, doc in step.arglist:
-            if len(args) == 0:
-                die("Missing argument (%s) to %s" % (doc, stepname))
-            arg = args.popleft()
-            steparg = argfn(arg)
-            if steparg is None:
-                die("Expected arg (%s) to %s but got %s" % (doc, stepname, arg))
-            stepargs.append(steparg)
+        step = STEPS.get(stepname) or die("Unknown step name: " + stepname)
+        stepargs = parse(args, step.argspecs)
         input = Reader(step.fn(None, input, *stepargs))
     for num, line in input.lines:
         print line
@@ -46,14 +36,14 @@ class Reader:
         self.rows = self.readrows(input)
     def readlines(self, input):
         for num, line in input:
-            print "RL yielding", line
+            # print "RL yielding", line
             if type(line) == str:
                 yield num, line
             else:
                 yield num, "\t".join(line)
     def readrows(self, input):
         for num, line in input:
-            print "RR yielding", line
+            # print "RR yielding", line
             if type(line) == list:
                 yield num, line
             elif "\t" in line:
@@ -65,37 +55,42 @@ class Reader:
 #
 # Arg parsers
 
-def oneof(choices):
-    """
-    Returns an arg parser that verifies the arg is in the given list.
-    """
-    def parse(arg):
-        if arg in choices:
-            return arg
-        return None
-    return parse
+ArgSpec = co.namedtuple("ArgSpec", "function docstring optional")
 
-def columns(arg):
-    """
-    An arg parser that handles column lists e.g. "1,3-5,8".  These are returned as an array
-    of all the implied ints, but zero-based.
-    """
-    columns = []
-    for nums in arg.replace("c", "").split(","):
-        if NUMBER.match(nums):
-            columns.append(int(nums) - 1)
-        else:
-            m = RANGE.match(nums)
-            if m:
-                columns += [x for x in range(int(m.group(1)) - 1, int(m.group(2)))]
-            else:
-                die("Bad column expression: " + expr)
-    return columns
+def parse(argq, argspecs):
+    def parseone(spec):
+        if len(argq) > 0:
+            return spec.function(argq.popleft())
+        return None if spec.optional else die("Missing argument, expected " + spec.docstring)
+    return filter(notnone, map(parseone, argspecs))
+
+def oneof(docstring, choices):
+    def parse(arg):
+        return arg if arg in choices else None
+    return ArgSpec(parse, docstring, false)
+
+def columns(docstring="column expression"):
+    def parse(arg):
+        def tocolumns(s):
+            if NUMBER.match(s):
+                return [int(s) - 1]
+            m = RANGE.match(s) or die("Bad column expression: " + s)
+            return [x for x in range(int(m.group(1)) - 1, int(m.group(2)))]
+        return reduce(lambda a, b: a + b, map(tocolumns, arg.replace("c", "").split(",")))
+    return ArgSpec(parse, docstring, False)
+
+def cast(function, docstring):
+    def parse(arg):
+        try:
+            return function(arg)
+        except:
+            die("Expected " + docstring + " but got: " + arg)
+    return ArgSpec(parse, docstring, False)
+
+def optional(spec):
+    return ArgSpec(spec.function, spec.docstring, True)
 
 def number(arg):
-    """
-    An arg parser that handles ints and floats, possibly with commas.
-    """
     if "," in arg:
         arg = arg.translate(None, ",")
     if "." in arg or "e" in arg:
@@ -115,33 +110,51 @@ def step(name, args):
         return f
     return wrap
 
-@step(name="strip", args=[[str, "characters to remove"]])
+@step(name="strip", args=[cast(str, "characters to remove")])
 def strip(meta, input, chars):
     for num, row in input.rows:
         yield num, map(lambda cell: cell.translate(None, chars))
+
+@step(name=["head"], args=[cast(int, "number of lines")])
+def head(meta, input, count):
+    if count <= 0:
+        return
+    for num, item in input.items:
+        if count <= 0:
+            return
+        yield num, item
+        count -= 1
+
+@step(name=["tail"], args=[cast(int, "number of lines")])
+def tail(meta, input, count):
+    if count <= 0:
+        return
+    queue = co.deque()
+    for num, item in input.items:
+        if len(queue) == count:
+            queue.popleft()
+        queue.append((num, item))
+    for num, item in queue:
+        yield num, item
 
 @step(name=["headtail", "ht"], args=[])
 def headtail(meta, input):
     count = 0
     queue = co.deque()
-    yield 1, "a"
-    yield 2, "b"
-    return
     for num, item in input.items:
-        print "ht got", num, item
         count += 1
         if count <= 10:
             yield num, item
         else:
             if len(queue) == 10:
                 queue.popleft()
-            queue.append(item)
+            queue.append((num, item))
     if len(queue) > 0:
-        yield 11, "--"
-        for index, item in enumerate(queue):
-            yield 12 + index, item
+        yield 0, "--"
+        for num, item in queue:
+            yield num, item
 
-@step(name="keep", args=[[columns, "column numbers to keep"]])
+@step(name="keep", args=[columns()])
 def keep(meta, input, columns):
     for num, row in input.rows:
         newrow = []
@@ -153,6 +166,8 @@ def keep(meta, input, columns):
 ####################################################################################################
 #
 # Misc utils
+
+def notnone(x): return x is not None
 
 def die(message):
     sys.stderr.write(message + "\n")
