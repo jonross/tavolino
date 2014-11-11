@@ -5,7 +5,7 @@ import re
 import sys
 
 NUMBER = re.compile("^\d+$")
-RANGE = re.compile("^(\d+)-(\d+)$")
+RANGE = re.compile("^(\d+)-(\d*)$")
 
 Step = co.namedtuple("Step", "fn name names argspecs")
 
@@ -71,12 +71,7 @@ def oneof(docstring, choices):
 
 def columns(docstring="column expression"):
     def parse(arg):
-        def tocolumns(s):
-            if NUMBER.match(s):
-                return [int(s) - 1]
-            m = RANGE.match(s) or die("Bad column expression: " + s)
-            return [x for x in range(int(m.group(1)) - 1, int(m.group(2)))]
-        return reduce(lambda a, b: a + b, map(tocolumns, arg.replace("c", "").split(",")))
+        return Columns.from_string(arg)
     return ArgSpec(parse, docstring, False)
 
 def cast(function, docstring):
@@ -158,14 +153,36 @@ def headtail(meta, input):
 def keep(meta, input, columns):
     for num, row in input.rows:
         newrow = []
-        for index in columns:
+        for index in columns.list:
             if index < len(row):
+                newrow.append(row[index])
+        if columns.rest:
+            for index in range(columns.rest, len(row)):
                 newrow.append(row[index])
         yield num, newrow
 
 ####################################################################################################
 #
 # Misc utils
+
+class Columns:
+
+    def __init__(self, list, rest):
+        self.list, self.rest = list, rest
+
+    @staticmethod
+    def from_string(s):
+        c = Columns([], None)
+        for part in s.replace("c", "").split(","):
+            if NUMBER.match(part):
+                c.list.append(int(part)-1)
+            else:
+                m = RANGE.match(part) or die("Bad column expression: " + part)
+                if m.group(2) != "":
+                    c.list += [x for x in range(int(m.group(1)) - 1, int(m.group(2)))]
+                elif c.rest is None or int(m.group(1)) - 1 < c.rest:
+                    c.rest = int(m.group(1)) - 1
+        return c
 
 def notnone(x): return x is not None
 
