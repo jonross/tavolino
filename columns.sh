@@ -52,19 +52,6 @@ header() {
     ' $1
 }
 
-keep() {
-    python2.7 -c 'if True:
-        import modsquad as m
-        columns = m.parse_columns("'"$1"'")
-        for row in m.tsv_input():
-            newrow = []
-            for c in columns:
-                if c < len(row):
-                    newrow.append(row[c])
-            print "\t".join(newrow)
-    '
-}
-
 left() {
     python2.7 -c 'if True:
         import modsquad as m
