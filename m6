@@ -36,14 +36,12 @@ class Reader:
         self.rows = self.readrows(input)
     def readlines(self, input):
         for num, line in input:
-            # print "RL yielding", line
             if type(line) == str:
                 yield num, line
             else:
                 yield num, "\t".join(line)
     def readrows(self, input):
         for num, line in input:
-            # print "RR yielding", line
             if type(line) == list:
                 yield num, line
             elif "\t" in line:
@@ -156,10 +154,24 @@ def keep(meta, input, columns):
         for index in columns.list:
             if index < len(row):
                 newrow.append(row[index])
-        if columns.rest:
+        if columns.rest is not None:
             for index in range(columns.rest, len(row)):
                 newrow.append(row[index])
         yield num, newrow
+
+@step(name="drop", args=[columns()])
+def drop(meta, input, columns):
+    todrop = set(columns.list)
+    for num, row in input.rows:
+        newrow = []
+        for index in range(0, len(row)):
+            if index in todrop:
+                continue
+            if columns.rest is not None and index >= columns.rest:
+                continue
+            newrow.append(row[index])
+        if len(newrow) > 0:
+            yield num, newrow
 
 ####################################################################################################
 #

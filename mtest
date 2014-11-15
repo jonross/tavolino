@@ -27,12 +27,12 @@ m4_define(<<test>>, <<
 echo '$4\c' | sed 1d >t_stdout_expected
 echo '$5\c' | sed 1d >t_stderr_expected
 echo '$3\c' | sed 1d | ./m6 $2 >t_stdout_actual 2>t_stderr_actual
-if [[ "$(cat t_stdout_actual)" != "$(cat t_stdout_expected)" ]]; then
+if [[ "$(cksum < t_stdout_actual)" != "$(cksum < t_stdout_expected)" ]]; then
     echo "Test '$1' failed, stdouts differ"
     diff t_stdout_expected t_stdout_actual
     nfailures=$(( $nfailures + 1 ))
 fi
-if [[ "$(cat t_stderr_actual)" != "$(cat t_stderr_expected)" ]]; then
+if [[ "$(cksum < t_stderr_actual)" != "$(cksum < t_stderr_expected)" ]]; then
     echo "Test '$1' failed, stderrs differ"
     diff t_stderr_expected t_stderr_actual
     nfailures=$(( $nfailures + 1 ))
@@ -43,6 +43,7 @@ test(<<Pass-thru>>, <<>>, ps, ps, <<>>)
 
 m4_include(<<tests/inputs.m4>>)
 
+m4_include(<<tests/drop.m4>>)
 m4_include(<<tests/head.m4>>)
 m4_include(<<tests/headtail.m4>>)
 m4_include(<<tests/keep.m4>>)
