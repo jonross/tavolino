@@ -41,6 +41,8 @@ fi
 
 test(<<Pass-thru>>, <<>>, ps, ps, <<>>)
 
+m4_include(<<tests/sep.m4>>)
+
 m4_include(<<tests/inputs.m4>>)
 
 m4_include(<<tests/drop.m4>>)

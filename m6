@@ -24,37 +24,40 @@ STEPS = {}
 
 def main(args):
 
-    def readinput():
-        for num, line in enumerate(sys.stdin):
-            yield num, line.rstrip()
-
-    # With no args, re-split the input, which generally will normalize whitespace
-    # separation to tabs.
+    # With no args, behave like cat
 
     if len(args) == 0:
-        args = ["split"]
+        for line in sys.stdin:
+            print line,
+        sys.exit(0)
+
     args = co.deque(args)
     meta = Metadata()
     input = None
 
+    def readinput():
+        for num, line in enumerate(sys.stdin):
+            yield num, line.rstrip()
+
     while len(args) > 0:
 
-        # Handle special names for changing field separator
+        # Handle special names for changing field separator.  Note both cases create
+        # the input only once needed; this ensures that if a field separator is specified
+        # before an action, it's in the input reader metadata.
 
         stepname = args.popleft()
         sep = SEPS.get(stepname)
         if sep is not None:
             meta.set_separator(sep)
+            input = Reader(meta.dup(), input.items if input else readinput())
             continue
 
-        # Find step by name and parse the args.  Note we don't create the initial
-        # input until it's actually needed; this ensures that if a field separator
-        # is specified early on, it's in the input reader metadata.
+        # Find step by name and parse the args.
 
         step = STEPS.get(stepname) or die("Unknown step name: " + stepname)
         stepargs = parse(args, step.argspecs)
-        input = input or Reader(meta, readinput())
-        input = Reader(meta, step.fn(None, input, *stepargs))
+        input = input or Reader(meta.dup(), readinput())
+        input = Reader(meta.dup(), step.fn(None, input, *stepargs))
 
     for num, line in input.lines:
         print line
@@ -73,6 +76,9 @@ class Metadata:
     def __init__(self, sep=None):
         self.set_separator(sep)
 
+    def dup(self):
+        return Metadata(self.insep)
+
     def set_separator(self, sep):
         self.insep = sep
         self.outsep = sep or "\t"
@@ -88,7 +94,7 @@ class Metadata:
 class Reader:
 
     """
-    Abstracts iteration over numbered lines or rows.  Callers use either
+    Consume an interable as numbered lines or rows.  Callers use either
         for num, line in reader.lines: ...
     or
         for num, row in reader.rows: ...
@@ -99,6 +105,7 @@ class Reader:
         self.items = input
         self.lines = self.readlines(input)
         self.rows = self.readrows(input)
+        self.items = input
 
     def readlines(self, input):
         """
@@ -277,7 +284,7 @@ def drop(meta, input, columns):
         if len(newrow) > 0:
             yield num, newrow
 
-@step(name="split", args=[])
+@step(name="to", args=[])
 def split(meta, input):
     for num, row in input.rows:
         yield num, row
