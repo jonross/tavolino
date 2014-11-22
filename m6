@@ -1,10 +1,11 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/python2.7
 
 import collections as co
+from os import path
 import re
 import sys
 
-NUMBER = re.compile("^\d+$")
+INTEGER = re.compile("^\d+$")
 RANGE = re.compile("^(\d+)-(\d*)$")
 
 Step = co.namedtuple("Step", "fn name names argspecs")
@@ -19,8 +20,6 @@ SEPS = {
 STEPS = {}
 
 ####################################################################################################
-#
-# Driver
 
 def main(args):
 
@@ -31,21 +30,55 @@ def main(args):
             print line,
         sys.exit(0)
 
+    # Set aside filenames at start of args
+
     args = co.deque(args)
+    filenames = []
+    badcount = 0
+
+    while len(args) > 0 and "." in args[0]:
+        filename = args.popleft()
+        if path.exists(filename):
+            filenames.append(filename)
+        else:
+            warn("File " + filename + " not found")
+            badcount += 1
+
+    if badcount > 0:
+        sys.exit(1)
+
+    sip = "sip" in args
     meta = Metadata()
     input = None
 
+    # Set up to read the input and tag it with line numbers
+
     def readinput():
-        for num, line in enumerate(sys.stdin):
-            yield num, line.rstrip()
+        lineno = 0
+        if filenames:
+            for filename in filenames:
+                for line in open(filename):
+                    lineno += 1
+                    yield lineno, line.rstrip()
+                    if sip and lineno == 1000:
+                        return
+        else:
+            for line in sys.stdin:
+                lineno += 1
+                yield lineno, line.rstrip()
+                if sip and lineno == 1000:
+                    return
 
     while len(args) > 0:
+
+        stepname = args.popleft()
+        if stepname == "sip":
+            continue
 
         # Handle special names for changing field separator.  Note both cases create
         # the input only once needed; this ensures that if a field separator is specified
         # before an action, it's in the input reader metadata.
 
-        stepname = args.popleft()
         sep = SEPS.get(stepname)
         if sep is not None:
             meta.set_separator(sep)
@@ -178,7 +211,7 @@ def oneof(docstring, choices):
         return arg if arg in choices else None
     return ArgSpec(parse, docstring, false)
 
-def columns(docstring="column expression"):
+def colset(docstring="column expression"):
     def parse(arg):
         return Columns.from_string(arg)
     return ArgSpec(parse, docstring, False)
@@ -258,35 +291,42 @@ def headtail(meta, input):
         for num, item in queue:
             yield num, item
 
-@step(name="keep", args=[columns()])
-def keep(meta, input, columns):
+@step(name="keep", args=[colset()])
+def keep(meta, input, colset):
     for num, row in input.rows:
         newrow = []
-        for index in columns.list:
-            if index < len(row):
-                newrow.append(row[index])
-        if columns.rest is not None:
-            for index in range(columns.rest, len(row)):
-                newrow.append(row[index])
+        for index in colset.until(len(row)):
+            newrow.append(row[index])
         yield num, newrow
 
-@step(name="drop", args=[columns()])
-def drop(meta, input, columns):
-    todrop = set(columns.list)
+@step(name="drop", args=[colset()])
+def drop(meta, input, colset):
     for num, row in input.rows:
         newrow = []
         for index in range(0, len(row)):
-            if index in todrop:
-                continue
-            if columns.rest is not None and index >= columns.rest:
-                continue
-            newrow.append(row[index])
+            if index not in colset:
+                newrow.append(row[index])
         if len(newrow) > 0:
             yield num, newrow
 
 @step(name="to", args=[])
 def split(meta, input):
     for num, row in input.rows:
+        yield num, row
+
+@step(name=["neat", "neaten"], args=[colset()])
+def justify(meta, input, colset):
+    result = []
+    for num, row in input.rows:
+        result.append((num, row))
+    rows = map(second, result)
+    maxlen = max(map(len, rows))
+    for index in colset.until(maxlen):
+        column = [row[index] for row in rows]
+        newcolumn = reformat(column, justify=True, comma=True)
+        for row, cell in zip(rows, newcolumn):
+            row[index] = cell
+    for num, row in result:
         yield num, row
 
 ####################################################################################################
@@ -297,31 +337,92 @@ class Columns:
 
     def __init__(self, list, rest):
         self.list, self.rest = list, rest
+        self._set = set(self.list)
 
     @staticmethod
     def from_string(s):
-        c = Columns([], None)
+        columns, rest = [], None
         for part in s.replace("c", "").split(","):
-            if NUMBER.match(part):
-                c.list.append(int(part)-1)
+            if INTEGER.match(part):
+                columns.append(int(part)-1)
             else:
                 m = RANGE.match(part) or die("Bad column expression: " + part)
                 if m.group(2) != "":
-                    c.list += [x for x in range(int(m.group(1)) - 1, int(m.group(2)))]
-                elif c.rest is None or int(m.group(1)) - 1 < c.rest:
-                    c.rest = int(m.group(1)) - 1
-        return c
+                    columns += [x for x in range(int(m.group(1)) - 1, int(m.group(2)))]
+                elif rest is None or int(m.group(1)) - 1 < rest:
+                    rest = int(m.group(1)) - 1
+        return Columns(columns, rest)
 
-def notnone(x): return x is not None
+    def until(self, max):
+        """
+        Iterate over the columns in the list, then if there is an open final range,
+        iterate over the values in that until max.
+        """
+        for index in self.list:
+            if index < max:
+                yield index
+        if self.rest is not None:
+            for index in range(self.rest, max):
+                yield index
+
+    def __contains__(self, index):
+        return index in self._set or (self.rest is not None and self.rest <= index)
+
+def reformat(a, **options):
+
+    """
+    Format a list of values.If justify=true, left (for strings) or right (for numbers)
+    justify in max length.  If comma=true, add comms to numbers.  Use 2 places of precision
+    for formatting floats.  Type values based on the first ten items.
+    """
+
+    justify = "justify" in options
+    comma = "comma" in options
+    isints = all(silent(int)(x) is not None for x in a[:10])
+    isfloats = not isints and all(silent(float)(x) is not None for x in a[:10])
+
+    if not isfloats and not isints:
+        a = [str(x) for x in a]
+        if not justify:
+            return a
+        maxlen = max(len(s) for s in a)
+        return [s.ljust(maxlen) for s in a]
+
+    if isfloats:
+        format = "{:,.2f}".format if comma else "{:.2f}".format
+        convert = float
+    else:
+        format = "{:,}".format if comma else str
+        convert = int
+
+    a = [format(convert(x)) for x in a]
+    if not justify:
+        return a
+    maxlen = max(len(s) for s in a)
+    return [s.rjust(maxlen) for s in a]
+
+def warn(message):
+    sys.stderr.write(message + "\n")
 
 def die(message):
-    sys.stderr.write(message + "\n")
+    warn(message)
     sys.exit(1)
 
 def first(x): return x[0]
 def second(x): return x[1]
+def isnone(x): return x is None
+def notnone(x): return x is not None
+def consume(x): 
+    for y in x: pass
+
+def silent(fn):
+    def wrapped(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except:
+            return None
+    return wrapped
 
 ####################################################################################################
 
 main(sys.argv[1:])
-

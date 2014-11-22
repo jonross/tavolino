@@ -55,3 +55,23 @@ d,e,f
 g,h
 >>, <<>>)
 
+test(<<explicit psv>>, <<psv to csv>>, <<
+a | b | c
+d | e | f
+g | h
+>>, <<
+a , b , c
+d , e , f
+g , h
+>>, <<>>)
+
+test(<<explicit csv>>, <<csv to psv>>, <<
+a , b , c
+d , e , f
+g , h
+>>, <<
+a | b | c
+d | e | f
+g | h
+>>, <<>>)
+
