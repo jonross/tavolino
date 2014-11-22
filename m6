@@ -12,6 +12,7 @@ Step = co.namedtuple("Step", "fn name names argspecs")
 
 SEPS = {
     "ss" : " ",  "ssv" : " ",
+    "s2" : "  ",
     "cs" : ",",  "csv" : ",",
     "ps" : "|",  "psv" : "|",
     "ts" : "\t", "tsv" : "\t"
@@ -150,7 +151,7 @@ class Reader:
             if type(line) == str:
                 yield num, line
             else:
-                yield num, outsep.join(line)
+                yield num, outsep.join(map(str, line))
 
     def readrows(self, input):
         """
@@ -315,7 +316,7 @@ def split(meta, input):
         yield num, row
 
 @step(name=["neat", "neaten"], args=[colset()])
-def justify(meta, input, colset):
+def neaten(meta, input, colset):
     result = []
     for num, row in input.rows:
         result.append((num, row))
@@ -326,6 +327,54 @@ def justify(meta, input, colset):
         newcolumn = reformat(column, justify=True, comma=True)
         for row, cell in zip(rows, newcolumn):
             row[index] = cell
+    for num, row in result:
+        yield num, row
+
+@step(name="ord", args=[])
+def inorder(meta, input):
+    for num, row in input.rows:
+        row.insert(0, num)
+        yield num, row
+
+@step(name=["per", "percent"], args=[colset()])
+def add_percent(meta, input, colset):
+    result = []
+    for num, row in input.rows:
+        result.append((num, row))
+    if not result:
+        return
+    rows = map(second, result)
+    offset = 0
+    for index in range(0, len(rows[0])):
+        if index in colset:
+            values = [float(row[index + offset]) for row in rows]
+            total = sum(values)
+            if total > 0:
+                percents = [value / total * 100 for value in values]
+            else:
+                percents = [0 for value in values]
+            for row, percent in zip(rows, percents):
+                row.insert(index + offset + 1, percent)
+            offset += 1
+    for num, row in result:
+        yield num, row
+
+@step(name="cum", args=[colset()])
+def add_cum(meta, input, colset):
+    result = []
+    for num, row in input.rows:
+        result.append((num, row))
+    if not result:
+        return
+    rows = map(second, result)
+    offset = 0
+    for index in range(0, len(rows[0])):
+        if index in colset:
+            cum = rows[0][index + offset] * 0
+            for row in rows:
+                cum += row[index + offset]
+                row.insert(index + offset + 1, cum)
+            offset += 1
     for num, row in result:
         yield num, row
 
@@ -378,8 +427,14 @@ def reformat(a, **options):
 
     justify = "justify" in options
     comma = "comma" in options
-    isints = all(silent(int)(x) is not None for x in a[:10])
-    isfloats = not isints and all(silent(float)(x) is not None for x in a[:10])
+    sample = a[:10]
+
+    if all(type(x) == str for x in sample):
+        isints = all(silent(int)(x) is not None for x in sample)
+        isfloats = not isints and all(silent(float)(x) is not None for x in sample)
+    else:
+        isints = all(type(x) == int for x in sample)
+        isfloats = not isints
 
     if not isfloats and not isints:
         a = [str(x) for x in a]
