@@ -4,7 +4,7 @@ Missing argument, expected number of lines
 >>)
 
 test(<<bad head arg>>, <<head a>>, ps, <<>>, <<
-Expected number of lines but got: a
+Expected number of lines but got: a, error was: invalid literal for int() with base 10: '"'"'a'"'"'
 >>)
 
 test(<<head 0>>, <<head 0>>, ps, <<

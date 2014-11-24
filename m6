@@ -2,6 +2,7 @@
 
 import collections as co
 from os import path
+import locale
 import re
 import sys
 
@@ -29,7 +30,7 @@ def main(args):
     filenames = []
     badcount = 0
 
-    while len(args) > 0 and "." in args[0]:
+    while len(args) > 0 and re.search(r"\.[-A-Za-z0-9_]+$", args[0]):
         filename = args.popleft()
         if path.exists(filename):
             filenames.append(filename)
@@ -208,6 +209,7 @@ ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
     ("^nice$", ["neat", "1-", "ofs", "  "]),
     ("^per$", ["percent"]),
     ("^psv$", ["fs", "|"]),
+    ("^s[/-_=,]", lambda word: expandsub(word)),
     ("^ssv$", ["fs", " "]),
     ("^tsv$", ["fs", "\t"]),
     ]
@@ -216,8 +218,19 @@ ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
 def expandalias(word):
     for regexp, expansion in ALIASES:
         if regexp.match(word):
-            return expansion
+            if type(expansion) == list:
+                return expansion
+            else:
+                return expansion(word)
     return None
+
+def expandsub(word):
+    sep = word[1]
+    subpat = "^s%s([^%s]*)%s([^%s]*)%s([gi0-9]*)$" % tuple([sep] * 5)
+    m = re.match(subpat, word)
+    if not m:
+        die("Expected substitution but got " + word)
+    return ["sub", m.group(1), m.group(2), m.group(3) or ""]
 
 ####################################################################################################
 #
@@ -246,19 +259,12 @@ def cast(function, docstring):
     def parse(arg):
         try:
             return function(arg)
-        except:
-            die("Expected " + docstring + " but got: " + arg)
+        except Exception as e:
+            die("Expected " + docstring + " but got: " + arg + ", error was: " + str(e))
     return ArgSpec(parse, docstring, False)
 
 def optional(spec):
     return ArgSpec(spec.function, spec.docstring, True)
-
-def number(arg):
-    if "," in arg:
-        arg = arg.translate(None, ",")
-    if "." in arg or "e" in arg:
-        return float(arg)
-    return int(arg)
 
 ####################################################################################################
 #
@@ -401,12 +407,23 @@ def add_cum(meta, input, colset):
     for num, row in result:
         yield num, row
 
-@step(name="sub", args=[cast(re.compile, "pattern"), cast(str, "replacement"), colset()])
-def substitute(meta, input, pat, rep, colset):
+@step(name="sub", args=[cast(re.compile, "pattern"), cast(str, "replacement"), cast(str, "flags"), colset()])
+def substitute(meta, input, pat, rep, flags, colset):
+    count = 1
+    reflags = 0
+    for flag in flags:
+        if flag in "0123456789":
+            count = int(flag)
+        elif flag == "g":
+            count = 0
+        elif flag == "i":
+            reflags = re.I
+        else:
+            die("Bad regexp flag: " + flag)
     for num, row in input.rows:
         if num > 0:
             for index in colset.until(len(row)):
-                row[index] = pat.sub(rep, row[index])
+                row[index] = pat.sub(rep, row[index], count)
         yield num, row
 
 ####################################################################################################
@@ -490,9 +507,9 @@ def convert_column(col, header=False):
     sample = map(convert, col[start:start+20])
 
     if all(type(x) == int for x in sample):
-        converter = lambda x: convert(x, int)
+        converter = lambda x: convert(x, locale.atoi)
     elif all(type(x) == float for x in sample):
-        converter = lambda x: convert(x, float)
+        converter = lambda x: convert(x, locale.atof)
     else:
         converter = str
 
@@ -514,10 +531,10 @@ def convert(value, bias=None):
         except:
             pass
     try:
-        return int(value)
+        return locale.atoi(value)
     except:
         try:
-            return float(value)
+            return locale.atof(value)
         except:
             return value
 
@@ -544,11 +561,13 @@ def consume(x):
 
 ####################################################################################################
 
-if "{:,}".format(1000) == "1,000":
-    NUMCOMMA = ","
-    NUMDOT = "."
-else:
+locale.setlocale(locale.LC_ALL, "")
+
+if locale.format("%.2f", 1.0) == "1,00":
     NUMCOMMA = "."
     NUMDOT = ","
+else:
+    NUMCOMMA = ","
+    NUMDOT = "."
 
 main(sys.argv[1:])

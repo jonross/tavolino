@@ -4,7 +4,7 @@ Missing argument, expected number of lines
 >>)
 
 test(<<bad tail arg>>, <<tail a>>, ps, <<>>, <<
-Expected number of lines but got: a
+Expected number of lines but got: a, error was: invalid literal for int() with base 10: '"'"'a'"'"'
 >>)
 
 test(<<tail 0>>, <<tail 0>>, ps, <<
