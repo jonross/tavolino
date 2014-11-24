@@ -11,12 +11,11 @@ RANGE = re.compile("^(\d+)-(\d*)$")
 Step = co.namedtuple("Step", "fn name names argspecs")
 
 ALIASES = {
-    "s2": ["sep", "  "],
-    "ssv": ["sep", " "],
-    "csv": ["sep", ","],
-    "psv": ["sep", "|"],
-    "tsv": ["sep", "\t"],
-    "nice" : ["neat", "1-", "sep", "  "],
+    "ssv": ["fs", " "],
+    "csv": ["fs", ","],
+    "psv": ["fs", "|"],
+    "tsv": ["fs", "\t"],
+    "nice" : ["neat", "1-", "ofs", "  "],
 }
 
 STEPS = {}
@@ -50,7 +49,7 @@ def main(args):
         sys.exit(1)
 
     sip = "sip" in args
-    meta = Metadata()
+    meta = Metadata(None, "\t")
     input = None
 
     # Set up to read the input and tag it with line numbers
@@ -85,8 +84,14 @@ def main(args):
         # the input only once needed; this ensures that if a field separator is specified
         # before an action, it's in the input reader metadata.
 
-        if stepname == "sep":
-            meta.set_separator(args.popleft())
+        if stepname in ["fs", "ifs", "ofs"]:
+            fs = args.popleft()
+            if stepname == "ifs":
+                meta = meta.withifs(fs)
+            elif stepname == "ofs":
+                meta = meta.withofs(fs)
+            else:
+                meta = meta.withifs(fs).withofs(fs)
             input = Reader(meta.dup(), input.items if input else readinput())
             continue
 
@@ -106,28 +111,29 @@ class Metadata:
     Input / output behaviors that persist across individual data transformation
     steps.
 
-    insep - input separator; " " means any span of whitespace
-    outsep - output separator, same as insep but "\t" if insep is None
-    splitter - for splitting on insep, or None if insep is None
+    ifs - input separator; " " means any span of whitespace
+    ofs - output separator
+    splitter - for splitting on insep; initially none, forces guessing
     """
 
-    def __init__(self, sep=None):
-        self.set_separator(sep)
+    def __init__(self, ifs, ofs, splitter=None):
+        self.withifs(ifs).withofs(ofs)
+        self.splitter = splitter
 
     def dup(self):
-        return Metadata(self.insep)
+        return Metadata(self.ifs, self.ofs, self.splitter)
 
-    def set_separator(self, sep):
-        self.insep = sep
-        self.outsep = sep or "\t"
-        # The splitter is distinct from self.insep because if the separator is a space,
-        # we want to split on whitespace, not just one space.
-        if sep is None:
-            self.splitter = None
-        elif sep == " ":
+    def withifs(self, ifs):
+        self.ifs = ifs
+        if ifs == " ":
             self.splitter = lambda s: s.split(None)
         else:
-            self.splitter = lambda s: s.split(sep)
+            self.splitter = lambda s: s.split(ifs)
+        return self
+
+    def withofs(self, ofs):
+        self.ofs = ofs
+        return self
 
 class Reader:
 
@@ -150,12 +156,12 @@ class Reader:
         Read input as lines; if lines have already been split to rows,
         join them on the current output separator.
         """
-        outsep = self.meta.outsep
+        ofs = self.meta.ofs
         for num, line in input:
             if type(line) == str:
                 yield num, line
             else:
-                yield num, outsep.join(map(str, line))
+                yield num, ofs.join(map(str, line))
 
     def readrows(self, input):
         """
@@ -173,11 +179,11 @@ class Reader:
                     head.append((num, line))
                     if len(head) == 10:
                         break
-                self.meta.set_separator(guess_separator(map(second, head)))
+                self.meta.withifs(guess_ifs(map(second, head)))
                 for num, line in head:
                     yield num, self.meta.splitter(line)
 
-def guess_separator(lines):
+def guess_ifs(lines):
     """
     Guess the correct input field separator given a sample of lines.
     If the same nonzero number of tabs is present on each, use tab.
