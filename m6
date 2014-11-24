@@ -20,6 +20,7 @@ ALIASES = {
     "psv": ["sep", "|"],
     "ts": ["sep", "\t"],
     "tsv": ["sep", "\t"],
+    "nice" : ["neat", "1-", "sep", "  "],
 }
 
 STEPS = {}
@@ -466,9 +467,9 @@ def convert_column(col, header=False):
     sample = map(convert, col[start:start+20])
 
     if all(type(x) == int for x in sample):
-        converter = lambda x: int(stripcommas(x))
+        converter = lambda x: convert(x, int)
     elif all(type(x) == float for x in sample):
-        converter = lambda x: float(stripcommas(x))
+        converter = lambda x: convert(x, float)
     else:
         converter = str
 
@@ -477,13 +478,18 @@ def convert_column(col, header=False):
         result[i] = converter(col[i])
     return result[start], result
 
-def convert(value):
+def convert(value, bias=None):
     """Intuit the type of a value and convert it.  Anything not a string is returned
     unchanged; otherwise we try ints, floats, and (eventually) dates."""
     typ = type(value)
     if typ != str:
         return value
     value = stripcommas(value)
+    if bias is not None:
+        try:
+            return bias(value)
+        except:
+            pass
     try:
         return int(value)
     except:
