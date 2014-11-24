@@ -10,12 +10,16 @@ RANGE = re.compile("^(\d+)-(\d*)$")
 
 Step = co.namedtuple("Step", "fn name names argspecs")
 
-SEPS = {
-    "ss" : " ",  "ssv" : " ",
-    "s2" : "  ",
-    "cs" : ",",  "csv" : ",",
-    "ps" : "|",  "psv" : "|",
-    "ts" : "\t", "tsv" : "\t"
+ALIASES = {
+    "ss": ["sep", " "],
+    "ssv": ["sep", " "],
+    "s2": ["sep", "  "],
+    "cs": ["sep", ","],
+    "csv": ["sep", ","],
+    "ps": ["sep", "|"],
+    "psv": ["sep", "|"],
+    "ts": ["sep", "\t"],
+    "tsv": ["sep", "\t"],
 }
 
 STEPS = {}
@@ -76,13 +80,16 @@ def main(args):
         if stepname == "sip":
             continue
 
+        if stepname in ALIASES:
+            args.extendleft(reversed(ALIASES[stepname]))
+            continue
+
         # Handle special names for changing field separator.  Note both cases create
         # the input only once needed; this ensures that if a field separator is specified
         # before an action, it's in the input reader metadata.
 
-        sep = SEPS.get(stepname)
-        if sep is not None:
-            meta.set_separator(sep)
+        if stepname == "sep":
+            meta.set_separator(args.popleft())
             input = Reader(meta.dup(), input.items if input else readinput())
             continue
 
@@ -459,9 +466,9 @@ def convert_column(col, header=False):
     sample = map(convert, col[start:start+20])
 
     if all(type(x) == int for x in sample):
-        converter = int
+        converter = lambda x: int(stripcommas(x))
     elif all(type(x) == float for x in sample):
-        converter = float
+        converter = lambda x: float(stripcommas(x))
     else:
         converter = str
 
@@ -476,13 +483,17 @@ def convert(value):
     typ = type(value)
     if typ != str:
         return value
-    result = asint(value)
-    if result is not None:
-        return result
-    result = asfloat(value)
-    if result is not None:
-        return result
-    return value
+    value = stripcommas(value)
+    try:
+        return int(value)
+    except:
+        try:
+            return float(value)
+        except:
+            return value
+
+def stripcommas(value):
+    return value.translate(None, NUMCOMMA) if NUMCOMMA in value else value
 
 ####################################################################################################
 #
@@ -502,17 +513,13 @@ def notnone(x): return x is not None
 def consume(x): 
     for y in x: pass
 
-def silent(fn):
-    def wrapped(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except:
-            return None
-    return wrapped
-
-asint = silent(int)
-asfloat = silent(float)
-
 ####################################################################################################
+
+if "{:,}".format(1000) == "1,000":
+    NUMCOMMA = ","
+    NUMDOT = "."
+else:
+    NUMCOMMA = "."
+    NUMDOT = ","
 
 main(sys.argv[1:])
