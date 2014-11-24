@@ -19,7 +19,7 @@ test(<<neat 1>>, <<neat 1 psv>>, <<
 1,111|2,222
 >>, <<>>)
 
-test(<<neat all>>, <<neat 1- ss>>, <<
+test(<<neat all>>, <<neat 1- ssv>>, <<
 3 4.1 foo
 150 8,888.8888 foobar
 >>, <<

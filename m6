@@ -11,14 +11,10 @@ RANGE = re.compile("^(\d+)-(\d*)$")
 Step = co.namedtuple("Step", "fn name names argspecs")
 
 ALIASES = {
-    "ss": ["sep", " "],
-    "ssv": ["sep", " "],
     "s2": ["sep", "  "],
-    "cs": ["sep", ","],
+    "ssv": ["sep", " "],
     "csv": ["sep", ","],
-    "ps": ["sep", "|"],
     "psv": ["sep", "|"],
-    "ts": ["sep", "\t"],
     "tsv": ["sep", "\t"],
     "nice" : ["neat", "1-", "sep", "  "],
 }
