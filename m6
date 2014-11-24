@@ -10,17 +10,6 @@ RANGE = re.compile("^(\d+)-(\d*)$")
 
 Step = co.namedtuple("Step", "fn name argspecs")
 
-ALIASES = {
-    "csv": ["fs", ","],
-    "ht" : ["headtail"],
-    "neat" : ["neaten"],
-    "nice" : ["neat", "1-", "ofs", "  "],
-    "per" : ["percent"],
-    "psv": ["fs", "|"],
-    "ssv": ["fs", " "],
-    "tsv": ["fs", "\t"],
-}
-
 STEPS = {}
 
 ####################################################################################################
@@ -75,23 +64,26 @@ def main(args):
 
     while len(args) > 0:
 
-        stepname = args.popleft()
-        if stepname == "sip":
+        word = args.popleft()
+        if word == "sip":
             continue
 
-        if stepname in ALIASES:
-            args.extendleft(reversed(ALIASES[stepname]))
+        words = expandalias(word)
+        if words:
+            args.extendleft(reversed(words))
             continue
 
         # Handle special names for changing field separator.  Note both cases create
         # the input only once needed; this ensures that if a field separator is specified
         # before an action, it's in the input reader metadata.
 
-        if stepname in ["fs", "ifs", "ofs"]:
+        if word in ["fs", "ifs", "ofs"]:
+            if len(args) == 0:
+                die("Missing field separator")
             fs = args.popleft()
-            if stepname == "ifs":
+            if word == "ifs":
                 meta = meta.withifs(fs)
-            elif stepname == "ofs":
+            elif word == "ofs":
                 meta = meta.withofs(fs)
             else:
                 meta = meta.withifs(fs).withofs(fs)
@@ -100,7 +92,7 @@ def main(args):
 
         # Find step by name and parse the args.
 
-        step = STEPS.get(stepname) or die("Unknown step name: " + stepname)
+        step = STEPS.get(word) or die("Unknown step name: " + word)
         stepargs = parse(args, step.argspecs)
         input = input or Reader(meta.dup(), readinput())
         input = Reader(meta.dup(), step.fn(None, input, *stepargs))
@@ -206,6 +198,26 @@ def guess_ifs(lines):
     best = first(first(co.Counter(bests).most_common(1)))
     # print >>sys.stderr, "The best separator is", best
     return best
+
+####################################################################################################
+
+ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
+    ("^csv$", ["fs", ","]),
+    ("^ht$", ["headtail"]),
+    ("^neat$", ["neaten"]),
+    ("^nice$", ["neat", "1-", "ofs", "  "]),
+    ("^per$", ["percent"]),
+    ("^psv$", ["fs", "|"]),
+    ("^ssv$", ["fs", " "]),
+    ("^tsv$", ["fs", "\t"]),
+    ]
+]
+
+def expandalias(word):
+    for regexp, expansion in ALIASES:
+        if regexp.match(word):
+            return expansion
+    return None
 
 ####################################################################################################
 #
@@ -387,6 +399,14 @@ def add_cum(meta, input, colset):
                 row.insert(index + offset + 1, cum)
             offset += 1
     for num, row in result:
+        yield num, row
+
+@step(name="sub", args=[cast(re.compile, "pattern"), cast(str, "replacement"), colset()])
+def substitute(meta, input, pat, rep, colset):
+    for num, row in input.rows:
+        if num > 0:
+            for index in colset.until(len(row)):
+                row[index] = pat.sub(rep, row[index])
         yield num, row
 
 ####################################################################################################
