@@ -380,7 +380,7 @@ def add_cum(meta, input, colset):
 
 ####################################################################################################
 #
-# Misc utils
+# Column utils
 
 class Columns:
 
@@ -417,44 +417,76 @@ class Columns:
     def __contains__(self, index):
         return index in self._set or (self.rest is not None and self.rest <= index)
 
-def reformat(a, **options):
+def reformat(col, **options):
 
     """
-    Format a list of values.If justify=true, left (for strings) or right (for numbers)
+    Format a column of values.If justify=true, left (for strings) or right (for numbers)
     justify in max length.  If comma=true, add comms to numbers.  Use 2 places of precision
     for formatting floats.  Type values based on the first ten items.
     """
 
     justify = "justify" in options
     comma = "comma" in options
-    sample = a[:10]
+    first, col = convert_column(col)
 
-    if all(type(x) == str for x in sample):
-        isints = all(silent(int)(x) is not None for x in sample)
-        isfloats = not isints and all(silent(float)(x) is not None for x in sample)
-    else:
-        isints = all(type(x) == int for x in sample)
-        isfloats = not isints
-
-    if not isfloats and not isints:
-        a = [str(x) for x in a]
+    if type(first) == str:
         if not justify:
-            return a
-        maxlen = max(len(s) for s in a)
-        return [s.ljust(maxlen) for s in a]
-
-    if isfloats:
+            return col
+        maxlen = max(len(s) for s in col)
+        return [s.ljust(maxlen) for s in col]
+    
+    if type(first) == float:
         format = "{:,.2f}".format if comma else "{:.2f}".format
-        convert = float
     else:
         format = "{:,}".format if comma else str
-        convert = int
 
-    a = [format(convert(x)) for x in a]
+    col = map(format, col)
     if not justify:
-        return a
-    maxlen = max(len(s) for s in a)
-    return [s.rjust(maxlen) for s in a]
+        return col 
+    maxlen = max(len(s) for s in col)
+    return [s.rjust(maxlen) for s in col]
+
+def convert_column(col, header=False):
+
+    """
+    Intuit a column's type and convert it.  Ignores the leading item if header=True.
+    Returns the first converted item (or None), and column.
+    """
+
+    if len(col) == 0 or len(col) <= 1 and header:
+        return None, map(str, col)
+    start = 1 if header else 0
+    sample = map(convert, col[start:start+20])
+
+    if all(type(x) == int for x in sample):
+        converter = int
+    elif all(type(x) == float for x in sample):
+        converter = float
+    else:
+        converter = str
+
+    result = col[:]
+    for i in range(start, len(result)):
+        result[i] = converter(col[i])
+    return result[start], result
+
+def convert(value):
+    """Intuit the type of a value and convert it.  Anything not a string is returned
+    unchanged; otherwise we try ints, floats, and (eventually) dates."""
+    typ = type(value)
+    if typ != str:
+        return value
+    result = asint(value)
+    if result is not None:
+        return result
+    result = asfloat(value)
+    if result is not None:
+        return result
+    return value
+
+####################################################################################################
+#
+# Column utils
 
 def warn(message):
     sys.stderr.write(message + "\n")
@@ -477,6 +509,9 @@ def silent(fn):
         except:
             return None
     return wrapped
+
+asint = silent(int)
+asfloat = silent(float)
 
 ####################################################################################################
 

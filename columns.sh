@@ -1,11 +1,4 @@
 
-####################################################################################################
-#
-# Column related functions.  Most of these take an optional or mandatory argument a la the field
-# expression passed to cut(1), e.g. 1,3-5,8 means columns 1, 3, 4, 5, 8.  All assume their input
-# is tab-separated or guess how to make it so.
-#
-
 also() {
     python2.7 -c 'if True:
         import modsquad as m, re, sys
@@ -22,36 +15,6 @@ also() {
     ' "$1"
 }
 
-comma() {
-    python2.7 -c 'if True:
-        import modsquad as m
-        columns = m.parse_columns("'"$1"'")
-        for row in m.tsv_input():
-            for c in columns:
-                if c < len(row):
-                    num = m.parse_number(row[c])
-                    if num is not None:
-                        row[c] = "{:,}".format(num)
-            print "\t".join(row)
-    '
-}
-
-header() {
-    python2.7 -c 'if True:
-        import modsquad as m, sys
-        names = sys.argv[1].split(",") if len(sys.argv) > 1 else []
-        input = m.tsv_input()
-        firstrow = input.next()
-        if len(names) < len(firstrow):
-            for c in range(len(firstrow) - len(names)):
-                names.append("c" + str(c+1))
-        print "\t".join(names)
-        print "\t".join(firstrow)
-        for row in m.tsv_input():
-            print "\t".join(row)
-    ' $1
-}
-
 left() {
     python2.7 -c 'if True:
         import modsquad as m
@@ -65,27 +28,6 @@ left() {
                 else:
                     right.append(row[i])
             print "\t".join(left + right)
-    '
-}
-
-per() {
-    python2.7 -c 'if True:
-        import modsquad as m, sys
-        columns = m.parse_columns("'"$1"'")
-        sums = [0] + len(columns)
-        for row in m.tsv_input()
-            rows.append(row)
-            i = 0
-            for c in columns:
-                value = row[c] = float(row[c])
-                sums[i] += value
-                i += 1
-        for row in rows:
-            i = 0
-            for c in columns:
-                row.append(round(row[c] / sums[i], 2))
-                i += 1
-            print "\t".join(map(str, row))
     '
 }
 
@@ -149,20 +91,5 @@ round() {
             for c in columns:
                 row[c] = str(round(float(row[c].replace(",", "")), places))
             print "\t".join(row)
-    '
-}
-
-sumby() {
-    python2.7 -c 'if True:
-        import collections as co, modsquad as m
-        key = '"$1"' - 1
-        column = '"$2"' - 1
-        sums = co.OrderedDict()
-        for row in m.tsv_input():
-            if row[key] not in sums:
-                sums[row[key]] = 0
-            sums[row[key]] += float(row[column])
-        for key in sums:
-            print key + "\t" + str(sums[key])
     '
 }
