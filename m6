@@ -8,14 +8,17 @@ import sys
 INTEGER = re.compile("^\d+$")
 RANGE = re.compile("^(\d+)-(\d*)$")
 
-Step = co.namedtuple("Step", "fn name names argspecs")
+Step = co.namedtuple("Step", "fn name argspecs")
 
 ALIASES = {
-    "ssv": ["fs", " "],
     "csv": ["fs", ","],
-    "psv": ["fs", "|"],
-    "tsv": ["fs", "\t"],
+    "ht" : ["headtail"],
+    "neat" : ["neaten"],
     "nice" : ["neat", "1-", "ofs", "  "],
+    "per" : ["percent"],
+    "psv": ["fs", "|"],
+    "ssv": ["fs", " "],
+    "tsv": ["fs", "\t"],
 }
 
 STEPS = {}
@@ -250,11 +253,9 @@ def number(arg):
 # Step definitions
 
 def step(name, args):
-    names = name if type(name) == list else [name]
     def wrap(f):
-        step = Step(f, names[0], names, args)
-        for name in names:
-            STEPS[name] = step
+        step = Step(f, name, args)
+        STEPS[name] = step
         return f
     return wrap
 
@@ -263,7 +264,7 @@ def strip(meta, input, chars):
     for num, row in input.rows:
         yield num, map(lambda cell: cell.translate(None, chars))
 
-@step(name=["head"], args=[cast(int, "number of lines")])
+@step(name="head", args=[cast(int, "number of lines")])
 def head(meta, input, count):
     if count <= 0:
         return
@@ -273,7 +274,7 @@ def head(meta, input, count):
         yield num, item
         count -= 1
 
-@step(name=["tail"], args=[cast(int, "number of lines")])
+@step(name="tail", args=[cast(int, "number of lines")])
 def tail(meta, input, count):
     if count <= 0:
         return
@@ -285,7 +286,7 @@ def tail(meta, input, count):
     for num, item in queue:
         yield num, item
 
-@step(name=["headtail", "ht"], args=[])
+@step(name="headtail", args=[])
 def headtail(meta, input):
     count = 0
     queue = co.deque()
@@ -325,7 +326,7 @@ def split(meta, input):
     for num, row in input.rows:
         yield num, row
 
-@step(name=["neat", "neaten"], args=[colset()])
+@step(name="neaten", args=[colset()])
 def neaten(meta, input, colset):
     result = []
     for num, row in input.rows:
@@ -346,7 +347,7 @@ def inorder(meta, input):
         row.insert(0, num)
         yield num, row
 
-@step(name=["per", "percent"], args=[colset()])
+@step(name="percent", args=[colset()])
 def add_percent(meta, input, colset):
     result = []
     for num, row in input.rows:
