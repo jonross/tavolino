@@ -6,38 +6,6 @@ fi
 . ~/bin/tavolino/columns.sh
 . ~/bin/tavolino/filters.sh
 
-#
-
-some() {
-    if [ $# = 0 ]; then
-        head -1000
-    elif [ $# -gt 3 ]; then
-        _via "head -1000" "$1" "$2" "$3"
-    else
-        _via "head -1000" "$@"
-    fi
-}
-
-all() {
-    if [ $# = 0 ]; then
-        cat
-    else
-        _via cat "$@"
-    fi
-}
-
-_via() {
-    filter="$1"
-    shift
-    for file in "$@"; do case "$file" in
-        *.Z)    zcat "$file" | $filter ;;
-        *.gz)   gunzip -c "$file" | $filter ;;
-        *)      $filter <"$file" ;;
-    esac; done
-}
-
-####################################################################################################
-
 colid() {
     tabify python -c 'if True:
         import sys
@@ -52,10 +20,6 @@ colid() {
             sys.stdout.write(columns[i].rjust(widths[i]))
         print
     '
-}
-
-nhist() {
-    sort | uniq -c | sort -nk2
 }
 
 only() {
