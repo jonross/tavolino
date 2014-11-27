@@ -5,7 +5,6 @@ fi
 
 . ~/bin/tavolino/columns.sh
 . ~/bin/tavolino/filters.sh
-. ~/bin/tavolino/utils.sh
 
 #
 
@@ -132,6 +131,24 @@ _wikify() {
             @row = map(/^-?[,0-9.]+$/ ? "  $_" : $_, split("\t"));
             print "|", join("|", @row), "|\n";
         }
+    '
+}
+
+jsonx() {
+    python2.7 -c 'if True:
+        import json, re, sys
+        data = json.loads(sys.stdin.read())
+        key = "'"$1"'"
+        for item in key.split(","):
+            if re.match(r"^\d+$", item):
+                data = data[int(item)]
+            else:
+                data = data[item]
+        if type(data) == list:
+            for item in data:
+                print item
+        else:
+            print data
     '
 }
 
