@@ -3,9 +3,9 @@ if [[ $PYTHONPATH =~ modsquad ]]; then :; else
     PYTHONPATH=${PYTHONPATH}:$HOME/bin/modsquad
 fi
 
-. ~/bin/modsquad/columns.sh
-. ~/bin/modsquad/filters.sh
-. ~/bin/modsquad/utils.sh
+. ~/bin/tavolino/columns.sh
+. ~/bin/tavolino/filters.sh
+. ~/bin/tavolino/utils.sh
 
 #
 
