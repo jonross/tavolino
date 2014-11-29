@@ -4,7 +4,6 @@ if [[ $PYTHONPATH =~ modsquad ]]; then :; else
 fi
 
 . ~/bin/tavolino/columns.sh
-. ~/bin/tavolino/filters.sh
 
 colid() {
     tabify python -c 'if True:
