@@ -15,22 +15,6 @@ also() {
     ' "$1"
 }
 
-left() {
-    python2.7 -c 'if True:
-        import modsquad as m
-        columns = set(m.parse_columns("'"$1"'"))
-        for row in m.tsv_input():
-            left = []
-            right = []
-            for i in range(len(row)):
-                if i in columns:
-                    left.append(row[i])
-                else:
-                    right.append(row[i])
-            print "\t".join(left + right)
-    '
-}
-
 pivot() {
     python2.7 -c 'if True:
         import collections as co, modsquad as m, sys
@@ -63,22 +47,6 @@ redate() {
                         m.die("Failed to parse " + row[c] + " as date")
                 row[c] = date.strftime(newformat)
             print "\t".join(row)
-    '
-}
-
-right() {
-    python2.7 -c 'if True:
-        import modsquad as m
-        columns = set(m.parse_columns("'"$1"'"))
-        for row in m.tsv_input():
-            left = []
-            right = []
-            for i in range(len(row)):
-                if i in columns:
-                    right.append(row[i])
-                else:
-                    left.append(row[i])
-            print "\t".join(left + right)
     '
 }
 
