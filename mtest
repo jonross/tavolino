@@ -53,6 +53,7 @@ m4_include(<<tests/drop.m4>>)
 m4_include(<<tests/head.m4>>)
 m4_include(<<tests/headtail.m4>>)
 m4_include(<<tests/keep.m4>>)
+m4_include(<<tests/leftright.m4>>)
 m4_include(<<tests/neat.m4>>)
 m4_include(<<tests/tail.m4>>)
 

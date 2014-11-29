@@ -426,6 +426,34 @@ def substitute(meta, input, pat, rep, flags, colset):
                 row[index] = pat.sub(rep, row[index], count)
         yield num, row
 
+@step(name="left", args=[colset()])
+def pull_left(meta, input, colset):
+    # TODO optimize for fixed length
+    for num, row in input.rows:
+        left, right = [], []
+        for index in range(0, len(row)):
+            if index in colset:
+                left.append(row[index])
+            else:
+                right.append(row[index])
+        for item in right:
+            left.append(item)
+        yield num, left
+
+@step(name="right", args=[colset()])
+def pull_right(meta, input, colset):
+    # TODO optimize for fixed length
+    for num, row in input.rows:
+        left, right = [], []
+        for index in range(0, len(row)):
+            if index in colset:
+                right.append(row[index])
+            else:
+                left.append(row[index])
+        for item in right:
+            left.append(item)
+        yield num, left
+
 ####################################################################################################
 #
 # Column utils
