@@ -55,6 +55,7 @@ m4_include(<<tests/headtail.m4>>)
 m4_include(<<tests/keep.m4>>)
 m4_include(<<tests/leftright.m4>>)
 m4_include(<<tests/neat.m4>>)
+m4_include(<<tests/round.m4>>)
 m4_include(<<tests/tail.m4>>)
 
 if [[ $nfailures > 0 ]]; then

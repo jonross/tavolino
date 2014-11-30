@@ -1,4 +1,6 @@
 #!/usr/bin/python2.7
+#
+# TODO: stop using Columns.list, not accurate
 
 import collections as co
 from os import path
@@ -454,6 +456,15 @@ def pull_right(meta, input, colset):
             left.append(item)
         yield num, left
 
+@step(name="round", args=[cast(int, "# of decimal places"), colset()])
+def rounding(meta, input, places, colset):
+    for num, row in input.rows:
+        for index in colset.until(len(row)):
+            value = convert(row[index], locale.atof)
+            if type(value) == float:
+                row[index] = round(value, places)
+        yield num, row
+
 ####################################################################################################
 #
 # Column utils
@@ -557,7 +568,7 @@ def convert(value, bias=None):
         try:
             return bias(value)
         except:
-            pass
+            return value
     try:
         return locale.atoi(value)
     except:

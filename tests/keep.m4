@@ -7,18 +7,7 @@ test(<<bad keep arg>>, <<keep x>>, ps, <<>>, <<
 Bad column expression: x
 >>)
 
-test(<<keep 2>>, <<keep 2>>, ps, <<
-PID
-1
-11
-12
-14
-15
-16
-17
-18
-19
->>, <<>>)
+test(<<keep all>>, <<keep 1->>, ps, psout, <<>>)
 
 test(<<keep 2,1>>, <<keep 2,1>>, ps, <<
 PID	UID
