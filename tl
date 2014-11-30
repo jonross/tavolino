@@ -3,8 +3,9 @@
 # TODO: stop using Columns.list, not accurate
 
 import collections as co
-from os import path
+from itertools import islice
 import locale
+from os import path
 import re
 import sys
 
@@ -27,13 +28,13 @@ def main(args):
     # Set aside filenames at start of args
 
     args = co.deque(args)
-    filenames = []
+    files = []
     badcount = 0
 
     while len(args) > 0 and re.search(r"\.[-A-Za-z0-9_]+$", args[0]):
         filename = args.popleft()
         if path.exists(filename):
-            filenames.append(filename)
+            files.append(filename)
         else:
             warn("File " + filename + " not found")
             badcount += 1
@@ -50,15 +51,8 @@ def main(args):
 
     def readinput():
         lineno = 0
-        if filenames:
-            for filename in filenames:
-                for line in open(filename):
-                    lineno += 1
-                    yield line.rstrip()
-                    if sip and lineno == 1000:
-                        return
-        else:
-            for line in sys.stdin:
+        for f in (files or [sys.stdin]):
+            for line in (f if type(f) == file else open(f)):
                 lineno += 1
                 yield line.rstrip()
                 if sip and lineno == 1000:
@@ -68,12 +62,8 @@ def main(args):
     # tags with line numbers.
 
     def readrows(ifs):
-        head = []
         input = readinput()
-        for line in input:
-            head.append(line)
-            if len(head) == 10:
-                break
+        head = list(islice(input, 0, 10))
         if ifs is None:
             ifs = guess_ifs(head)
         if ifs == " ":
@@ -165,10 +155,7 @@ ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
 def expandalias(word):
     for regexp, expansion in ALIASES:
         if regexp.match(word):
-            if type(expansion) == list:
-                return expansion
-            else:
-                return expansion(word)
+            return expansion if type(expansion) == list else expansion(word)
     return None
 
 def expandsub(word):
@@ -231,25 +218,11 @@ def strip(input, chars):
 
 @step(name="head", args=[cast(int, "number of lines")])
 def head(input, count):
-    if count <= 0:
-        return
-    for num, row in input:
-        if count <= 0:
-            return
-        yield num, row
-        count -= 1
+    return islice(input, 0, count)
 
 @step(name="tail", args=[cast(int, "number of lines")])
 def tail(input, count):
-    if count <= 0:
-        return
-    queue = co.deque()
-    for num, row in input:
-        if len(queue) == count:
-            queue.popleft()
-        queue.append((num, row))
-    for num, row in queue:
-        yield num, row
+    return co.deque(input, count)
 
 @step(name="headtail", args=[])
 def headtail(input):
