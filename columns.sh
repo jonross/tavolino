@@ -49,15 +49,3 @@ redate() {
             print "\t".join(row)
     '
 }
-
-round() {
-    python2.7 -c 'if True:
-        import modsquad as m, sys
-        places = '"$1"'
-        columns = m.parse_columns("'"$2"'")
-        for row in m.tsv_input():
-            for c in columns:
-                row[c] = str(round(float(row[c].replace(",", "")), places))
-            print "\t".join(row)
-    '
-}
