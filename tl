@@ -44,7 +44,7 @@ def main(args):
         sys.exit(1)
 
     sip = "sip" in args
-    meta = Metadata(None, "\t")
+    delims = Delimiters(None, "\t")
     input = None
 
     # Set up to read the input and tag it with line numbers
@@ -78,32 +78,32 @@ def main(args):
 
         # Handle special names for changing field separator.  Note both cases create
         # the input only once needed; this ensures that if a field separator is specified
-        # before an action, it's in the input reader metadata.
+        # before an action, it's in the input reader delimiters.
 
         if word in ["fs", "ifs", "ofs"]:
             if len(args) == 0:
                 die("Missing field separator")
             fs = args.popleft()
             if word == "ifs":
-                meta = meta.withifs(fs)
+                delims = delims.withifs(fs)
             elif word == "ofs":
-                meta = meta.withofs(fs)
+                delims = delims.withofs(fs)
             else:
-                meta = meta.withifs(fs).withofs(fs)
-            input = Reader(meta.dup(), input.items if input else readinput())
+                delims = delims.withifs(fs).withofs(fs)
+            input = Reader(delims.dup(), input.items if input else readinput())
             continue
 
         # Find step by name and parse the args.
 
         step = STEPS.get(word) or die("Unknown step name: " + word)
         stepargs = parse(args, step.argspecs)
-        input = input or Reader(meta.dup(), readinput())
-        input = Reader(meta.dup(), step.fn(None, input, *stepargs))
+        input = input or Reader(delims.dup(), readinput())
+        input = Reader(delims.dup(), step.fn(input, *stepargs))
 
     for num, line in input.lines:
         print line
 
-class Metadata:
+class Delimiters:
 
     """
     Input / output behaviors that persist across individual data transformation
@@ -119,7 +119,7 @@ class Metadata:
         self.splitter = splitter
 
     def dup(self):
-        return Metadata(self.ifs, self.ofs, self.splitter)
+        return Delimiters(self.ifs, self.ofs, self.splitter)
 
     def withifs(self, ifs):
         self.ifs = ifs
@@ -142,8 +142,8 @@ class Reader:
         for num, row in reader.rows: ...
     """
 
-    def __init__(self, meta, input):
-        self.meta = meta
+    def __init__(self, delims, input):
+        self.delims = delims
         self.items = input
         self.lines = self.readlines(input)
         self.rows = self.readrows(input)
@@ -154,7 +154,7 @@ class Reader:
         Read input as lines; if lines have already been split to rows,
         join them on the current output separator.
         """
-        ofs = self.meta.ofs
+        ofs = self.delims.ofs
         for num, line in input:
             if type(line) == str:
                 yield num, line
@@ -169,17 +169,17 @@ class Reader:
         for num, line in input:
             if type(line) == list:
                 yield num, line
-            elif self.meta.splitter:
-                yield num, self.meta.splitter(line)
+            elif self.delims.splitter:
+                yield num, self.delims.splitter(line)
             else:
                 head = [(num, line)]
                 for num, line in input:
                     head.append((num, line))
                     if len(head) == 10:
                         break
-                self.meta.withifs(guess_ifs(map(second, head)))
+                self.delims.withifs(guess_ifs(map(second, head)))
                 for num, line in head:
-                    yield num, self.meta.splitter(line)
+                    yield num, self.delims.splitter(line)
 
 def guess_ifs(lines):
     """
@@ -280,12 +280,12 @@ def step(name, args):
     return wrap
 
 @step(name="strip", args=[cast(str, "characters to remove")])
-def strip(meta, input, chars):
+def strip(input, chars):
     for num, row in input.rows:
         yield num, map(lambda cell: cell.translate(None, chars))
 
 @step(name="head", args=[cast(int, "number of lines")])
-def head(meta, input, count):
+def head(input, count):
     if count <= 0:
         return
     for num, item in input.items:
@@ -295,7 +295,7 @@ def head(meta, input, count):
         count -= 1
 
 @step(name="tail", args=[cast(int, "number of lines")])
-def tail(meta, input, count):
+def tail(input, count):
     if count <= 0:
         return
     queue = co.deque()
@@ -307,7 +307,7 @@ def tail(meta, input, count):
         yield num, item
 
 @step(name="headtail", args=[])
-def headtail(meta, input):
+def headtail(input):
     count = 0
     queue = co.deque()
     for num, item in input.items:
@@ -324,7 +324,7 @@ def headtail(meta, input):
             yield num, item
 
 @step(name="keep", args=[colset()])
-def keep(meta, input, colset):
+def keep(input, colset):
     for num, row in input.rows:
         newrow = []
         for index in colset.until(len(row)):
@@ -332,7 +332,7 @@ def keep(meta, input, colset):
         yield num, newrow
 
 @step(name="drop", args=[colset()])
-def drop(meta, input, colset):
+def drop(input, colset):
     for num, row in input.rows:
         newrow = []
         for index in range(0, len(row)):
@@ -342,12 +342,12 @@ def drop(meta, input, colset):
             yield num, newrow
 
 @step(name="to", args=[])
-def split(meta, input):
+def split(input):
     for num, row in input.rows:
         yield num, row
 
 @step(name="neaten", args=[colset()])
-def neaten(meta, input, colset):
+def neaten(input, colset):
     result = []
     for num, row in input.rows:
         result.append((num, row))
@@ -362,13 +362,13 @@ def neaten(meta, input, colset):
         yield num, row
 
 @step(name="ord", args=[])
-def inorder(meta, input):
+def inorder(input):
     for num, row in input.rows:
         row.insert(0, num)
         yield num, row
 
 @step(name="percent", args=[colset()])
-def add_percent(meta, input, colset):
+def add_percent(input, colset):
     result = []
     for num, row in input.rows:
         result.append((num, row))
@@ -391,7 +391,7 @@ def add_percent(meta, input, colset):
         yield num, row
 
 @step(name="cum", args=[colset()])
-def add_cum(meta, input, colset):
+def add_cum(input, colset):
     result = []
     for num, row in input.rows:
         result.append((num, row))
@@ -410,7 +410,7 @@ def add_cum(meta, input, colset):
         yield num, row
 
 @step(name="sub", args=[cast(re.compile, "pattern"), cast(str, "replacement"), cast(str, "flags"), colset()])
-def substitute(meta, input, pat, rep, flags, colset):
+def substitute(input, pat, rep, flags, colset):
     count = 1
     reflags = 0
     for flag in flags:
@@ -429,7 +429,7 @@ def substitute(meta, input, pat, rep, flags, colset):
         yield num, row
 
 @step(name="left", args=[colset()])
-def pull_left(meta, input, colset):
+def pull_left(input, colset):
     # TODO optimize for fixed length
     for num, row in input.rows:
         left, right = [], []
@@ -443,7 +443,7 @@ def pull_left(meta, input, colset):
         yield num, left
 
 @step(name="right", args=[colset()])
-def pull_right(meta, input, colset):
+def pull_right(input, colset):
     # TODO optimize for fixed length
     for num, row in input.rows:
         left, right = [], []
@@ -457,7 +457,7 @@ def pull_right(meta, input, colset):
         yield num, left
 
 @step(name="round", args=[cast(int, "# of decimal places"), colset()])
-def rounding(meta, input, places, colset):
+def rounding(input, places, colset):
     for num, row in input.rows:
         for index in colset.until(len(row)):
             value = convert(row[index], locale.atof)
