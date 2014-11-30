@@ -15,6 +15,8 @@ RANGE = re.compile("^(\d+)-(\d*)$")
 Step = co.namedtuple("Step", "fn name argspecs")
 
 STEPS = {}
+SIP = HAS_HEADER = False
+NSAMPLES = 20
 
 ####################################################################################################
 
@@ -42,7 +44,9 @@ def main(args):
     if badcount > 0:
         sys.exit(1)
 
-    sip = "sip" in args
+    global SIP, HAS_HEADER
+    SIP = "sip" in args
+    HAS_HEADER = "hdr" in args or "header" in args
     input = None
     ifs = None
     ofs = "\t"
@@ -55,7 +59,7 @@ def main(args):
             for line in (f if type(f) == file else open(f)):
                 lineno += 1
                 yield line.rstrip()
-                if sip and lineno == 1000:
+                if SIP and lineno == 1000:
                     return
 
     # Second-level input reader; splits to columns, guesses delimiters, and
@@ -63,7 +67,7 @@ def main(args):
 
     def readrows(ifs):
         input = readinput()
-        head = list(islice(input, 0, 10))
+        head = list(islice(input, 0, NSAMPLES))
         if ifs is None:
             ifs = guess_ifs(head)
         if ifs == " ":
@@ -82,17 +86,12 @@ def main(args):
     while len(args) > 0:
 
         word = args.popleft()
-        if word == "sip":
-            continue
-
         words = expandalias(word)
         if words:
             args.extendleft(reversed(words))
             continue
 
-        # Handle special names for changing field separator.  Note both cases create
-        # the input only once needed; this ensures that if a field separator is specified
-        # before an action, it's in the input reader delimiters.
+        # Handle special names for changing field separator.
 
         if word in ["fs", "ifs", "ofs"]:
             if len(args) == 0:
@@ -106,7 +105,7 @@ def main(args):
                 ifs = ofs = fs
             continue
 
-        # Find step by name and parse the args.
+        # Find step by name, parse args, and build another level of input iterator.
 
         step = STEPS.get(word) or die("Unknown step name: " + word)
         stepargs = parse(args, step.argspecs)
@@ -117,8 +116,8 @@ def main(args):
         print ofs.join(map(str, row))
 
 def guess_ifs(lines):
-    """
-    Guess the correct input field separator given a sample of lines.
+    """Guess the correct input field separator given a sample of lines.
+
     If the same nonzero number of tabs is present on each, use tab.
     Otherwise use the one of (whitespace, comma, pipe) that appears
     most frequently.
@@ -143,24 +142,30 @@ def guess_ifs(lines):
 
 ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
     ("^csv$", ["fs", ","]),
+    ("^hdr|header$", []), # handled before arg parsing
     ("^ht$", ["headtail"]),
     ("^neat$", ["neaten"]),
     ("^nice$", ["neat", "1-", "ofs", "  "]),
     ("^per$", ["percent"]),
     ("^psv$", ["fs", "|"]),
     ("^s[/-_=,]", lambda word: expandsub(word)),
+    ("^sip$", []), # handled before arg parsing
     ("^ssv$", ["fs", " "]),
     ("^tsv$", ["fs", "\t"]),
     ]
 ]
 
 def expandalias(word):
+    """Return alias expansion for a word, or None if none."""
     for regexp, expansion in ALIASES:
         if regexp.match(word):
             return expansion if type(expansion) == list else expansion(word)
     return None
 
 def expandsub(word):
+    """Handle alias expansion of s/pattern/replacement/flags;
+    turn it into ["sub", "pattern", "replacement", "flags"]
+    """
     sep = word[1]
     subpat = "^s%s([^%s]*)%s([^%s]*)%s([gi0-9]*)$" % tuple([sep] * 5)
     m = re.match(subpat, word)
@@ -169,8 +174,6 @@ def expandsub(word):
     return ["sub", m.group(1), m.group(2), m.group(3) or ""]
 
 ####################################################################################################
-#
-# Arg parsers
 
 ArgSpec = co.namedtuple("ArgSpec", "function docstring optional")
 
@@ -425,8 +428,7 @@ class Columns:
         return Columns(columns, rest)
 
     def until(self, max):
-        """
-        Iterate over the columns in the list, then if there is an open final range,
+        """ Iterate over the columns in the list, then if there is an open final range,
         iterate over the values in that until max.
         """
         for index in self.list:
@@ -439,10 +441,49 @@ class Columns:
     def __contains__(self, index):
         return index in self._set or (self.rest is not None and self.rest <= index)
 
+class Metadata:
+
+    """Information about a column's type"""
+
+    def __init__(self, kind, converter, absent=False):
+        # Not enough data available to determine
+        self.absent = absent
+        # str, int, float or date
+        self.kind = kind
+        # How to convert values
+        self._converter = converter
+
+    @staticmethod
+    def from_data(col):
+
+        """Sample values from a column, ignoring a possible header, and return
+        a new Metadata instance.
+        """
+
+        if len(col) == 0 or len(col) <= 1 and HAS_HEADER:
+            return Metadata(str, str, true)
+        start = 1 if HAS_HEADER else 0
+        sample = map(convert, col[start:start+NSAMPLES])
+
+        if all(type(x) == int for x in sample):
+            return Metadata(int, lambda x: convert(x, locale.atoi))
+        elif all(type(x) == float for x in sample):
+            return Metadata(float, lambda x: convert(x, locale.atof))
+        else:
+            return Metadata(str, str)
+
+    def convert(self, col):
+
+        """Convert a column of values, returning the first converted value
+        separately (this is None if there are no discernible values.)
+        """
+
+
 def reformat(col, **options):
 
-    """
-    Format a column of values.If justify=true, left (for strings) or right (for numbers)
+    """Format a column of values.
+    
+    If justify=true, left (for strings) or right (for numbers)
     justify in max length.  If comma=true, add comms to numbers.  Use 2 places of precision
     for formatting floats.  Type values based on the first ten items.
     """
@@ -468,17 +509,18 @@ def reformat(col, **options):
     maxlen = max(len(s) for s in col)
     return [s.rjust(maxlen) for s in col]
 
-def convert_column(col, header=False):
+def convert_column(col):
 
     """
-    Intuit a column's type and convert it.  Ignores the leading item if header=True.
+    Intuit a column's type and convert it.  Ignores the leading item if HAS_HEADER.
     Returns the first converted item (or None), and column.
     """
 
-    if len(col) == 0 or len(col) <= 1 and header:
+    metadata = Metadata.from_data(col)
+    if metadata.absent:
         return None, map(str, col)
-    start = 1 if header else 0
-    sample = map(convert, col[start:start+20])
+    start = 1 if HAS_HEADER else 0
+    sample = map(convert, col[start:start+NSAMPLES])
 
     if all(type(x) == int for x in sample):
         converter = lambda x: convert(x, locale.atoi)
