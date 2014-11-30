@@ -70,6 +70,7 @@ def main(args):
             splitter = lambda s: s.lstrip().split(None)
         else:
             splitter = lambda s: s.split(ifs)
+        yield []
         lineno = 1
         for line in head:
             yield lineno, splitter(line)
@@ -111,6 +112,7 @@ def main(args):
         stepargs = parse(args, step.argspecs)
         input = step.fn((input or readrows(ifs)), *stepargs)
 
+    meta = next(input)
     for num, row in input:
         print ofs.join(map(str, row))
 
@@ -213,19 +215,23 @@ def step(name, args):
 
 @step(name="strip", args=[cast(str, "characters to remove")])
 def strip(input, chars):
+    yield next(input)
     for num, row in input:
         yield num, map(lambda cell: cell.translate(None, chars))
 
 @step(name="head", args=[cast(int, "number of lines")])
 def head(input, count):
-    return islice(input, 0, count)
+    return islice(input, 0, count + 1)
 
 @step(name="tail", args=[cast(int, "number of lines")])
 def tail(input, count):
-    return co.deque(input, count)
+    yield next(input)
+    for x in co.deque(input, count):
+        yield x
 
 @step(name="headtail", args=[])
 def headtail(input):
+    yield next(input)
     count = 0
     queue = co.deque()
     for num, row in input:
@@ -243,6 +249,7 @@ def headtail(input):
 
 @step(name="keep", args=[colset()])
 def keep(input, colset):
+    yield next(input)
     for num, row in input:
         newrow = []
         for index in colset.until(len(row)):
@@ -251,6 +258,7 @@ def keep(input, colset):
 
 @step(name="drop", args=[colset()])
 def drop(input, colset):
+    yield next(input)
     for num, row in input:
         newrow = []
         for index in range(0, len(row)):
@@ -261,11 +269,13 @@ def drop(input, colset):
 
 @step(name="to", args=[])
 def split(input):
+    yield next(input)
     for num, row in input:
         yield num, row
 
 @step(name="neaten", args=[colset()])
 def neaten(input, colset):
+    yield next(input)
     result = []
     for num, row in input:
         result.append((num, row))
@@ -281,12 +291,14 @@ def neaten(input, colset):
 
 @step(name="ord", args=[])
 def inorder(input):
+    yield next(input)
     for num, row in input:
         row.insert(0, num)
         yield num, row
 
 @step(name="percent", args=[colset()])
 def add_percent(input, colset):
+    yield next(input)
     result = []
     for num, row in input:
         result.append((num, row))
@@ -310,6 +322,7 @@ def add_percent(input, colset):
 
 @step(name="cum", args=[colset()])
 def add_cum(input, colset):
+    yield next(input)
     result = []
     for num, row in input:
         result.append((num, row))
@@ -329,6 +342,7 @@ def add_cum(input, colset):
 
 @step(name="sub", args=[cast(re.compile, "pattern"), cast(str, "replacement"), cast(str, "flags"), colset()])
 def substitute(input, pat, rep, flags, colset):
+    yield next(input)
     count = 1
     reflags = 0
     for flag in flags:
@@ -348,6 +362,7 @@ def substitute(input, pat, rep, flags, colset):
 
 @step(name="left", args=[colset()])
 def pull_left(input, colset):
+    yield next(input)
     # TODO optimize for fixed length
     for num, row in input:
         left, right = [], []
@@ -362,6 +377,7 @@ def pull_left(input, colset):
 
 @step(name="right", args=[colset()])
 def pull_right(input, colset):
+    yield next(input)
     # TODO optimize for fixed length
     for num, row in input:
         left, right = [], []
@@ -376,6 +392,7 @@ def pull_right(input, colset):
 
 @step(name="round", args=[cast(int, "# of decimal places"), colset()])
 def rounding(input, places, colset):
+    yield next(input)
     for num, row in input:
         for index in colset.until(len(row)):
             value = convert(row[index], locale.atof)
