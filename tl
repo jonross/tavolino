@@ -455,16 +455,13 @@ class Metadata:
 
     @staticmethod
     def from_data(col):
-
         """Sample values from a column, ignoring a possible header, and return
         a new Metadata instance.
         """
-
         if len(col) == 0 or len(col) <= 1 and HAS_HEADER:
             return Metadata(str, str, true)
         start = 1 if HAS_HEADER else 0
         sample = map(convert, col[start:start+NSAMPLES])
-
         if all(type(x) == int for x in sample):
             return Metadata(int, lambda x: convert(x, locale.atoi))
         elif all(type(x) == float for x in sample):
@@ -473,11 +470,16 @@ class Metadata:
             return Metadata(str, str)
 
     def convert(self, col):
-
         """Convert a column of values, returning the first converted value
         separately (this is None if there are no discernible values.)
         """
-
+        if self.absent:
+            return None, map(str, col)
+        start = 1 if HAS_HEADER else 0
+        result = col[:]
+        for i in range(start, len(result)):
+            result[i] = self._converter(col[i])
+        return result[start], result
 
 def reformat(col, **options):
 
@@ -490,7 +492,7 @@ def reformat(col, **options):
 
     justify = "justify" in options
     comma = "comma" in options
-    first, col = convert_column(col)
+    first, col = Metadata.from_data(col).convert(col)
 
     if type(first) == str:
         if not justify:
@@ -508,31 +510,6 @@ def reformat(col, **options):
         return col 
     maxlen = max(len(s) for s in col)
     return [s.rjust(maxlen) for s in col]
-
-def convert_column(col):
-
-    """
-    Intuit a column's type and convert it.  Ignores the leading item if HAS_HEADER.
-    Returns the first converted item (or None), and column.
-    """
-
-    metadata = Metadata.from_data(col)
-    if metadata.absent:
-        return None, map(str, col)
-    start = 1 if HAS_HEADER else 0
-    sample = map(convert, col[start:start+NSAMPLES])
-
-    if all(type(x) == int for x in sample):
-        converter = lambda x: convert(x, locale.atoi)
-    elif all(type(x) == float for x in sample):
-        converter = lambda x: convert(x, locale.atof)
-    else:
-        converter = str
-
-    result = col[:]
-    for i in range(start, len(result)):
-        result[i] = converter(col[i])
-    return result[start], result
 
 def convert(value, bias=None):
     """Intuit the type of a value and convert it.  Anything not a string is returned
