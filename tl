@@ -19,12 +19,10 @@ STEPS = {}
 
 def main(args):
 
-    # With no args, behave like cat
+    # With no args, normalize whitespace
 
     if len(args) == 0:
-        for line in sys.stdin:
-            print line,
-        sys.exit(0)
+        args = ["to", "tsv"]
 
     # Set aside filenames at start of args
 
@@ -44,10 +42,11 @@ def main(args):
         sys.exit(1)
 
     sip = "sip" in args
-    delims = Delimiters(None, "\t")
     input = None
+    ifs = None
+    ofs = "\t"
 
-    # Set up to read the input and tag it with line numbers
+    # Innermost input reader; handles stdin vs file list and applies line limit.
 
     def readinput():
         lineno = 0
@@ -55,15 +54,39 @@ def main(args):
             for filename in filenames:
                 for line in open(filename):
                     lineno += 1
-                    yield lineno, line.rstrip()
+                    yield line.rstrip()
                     if sip and lineno == 1000:
                         return
         else:
             for line in sys.stdin:
                 lineno += 1
-                yield lineno, line.rstrip()
+                yield line.rstrip()
                 if sip and lineno == 1000:
                     return
+
+    # Second-level input reader; splits to columns, guesses delimiters, and
+    # tags with line numbers.
+
+    def readrows(ifs):
+        head = []
+        input = readinput()
+        for line in input:
+            head.append(line)
+            if len(head) == 10:
+                break
+        if ifs is None:
+            ifs = guess_ifs(head)
+        if ifs == " ":
+            splitter = lambda s: s.lstrip().split(None)
+        else:
+            splitter = lambda s: s.split(ifs)
+        lineno = 1
+        for line in head:
+            yield lineno, splitter(line)
+            lineno += 1
+        for line in input:
+            yield lineno, splitter(line)
+            lineno += 1
 
     while len(args) > 0:
 
@@ -85,101 +108,21 @@ def main(args):
                 die("Missing field separator")
             fs = args.popleft()
             if word == "ifs":
-                delims = delims.withifs(fs)
+                ifs = fs
             elif word == "ofs":
-                delims = delims.withofs(fs)
+                ofs = fs
             else:
-                delims = delims.withifs(fs).withofs(fs)
-            input = Reader(delims.dup(), input.items if input else readinput())
+                ifs = ofs = fs
             continue
 
         # Find step by name and parse the args.
 
         step = STEPS.get(word) or die("Unknown step name: " + word)
         stepargs = parse(args, step.argspecs)
-        input = input or Reader(delims.dup(), readinput())
-        input = Reader(delims.dup(), step.fn(input, *stepargs))
+        input = step.fn((input or readrows(ifs)), *stepargs)
 
-    for num, line in input.lines:
-        print line
-
-class Delimiters:
-
-    """
-    Input / output behaviors that persist across individual data transformation
-    steps.
-
-    ifs - input separator; " " means any span of whitespace
-    ofs - output separator
-    splitter - for splitting on insep; initially none, forces guessing
-    """
-
-    def __init__(self, ifs, ofs, splitter=None):
-        self.withifs(ifs).withofs(ofs)
-        self.splitter = splitter
-
-    def dup(self):
-        return Delimiters(self.ifs, self.ofs, self.splitter)
-
-    def withifs(self, ifs):
-        self.ifs = ifs
-        if ifs == " ":
-            self.splitter = lambda s: s.split(None)
-        else:
-            self.splitter = lambda s: s.split(ifs)
-        return self
-
-    def withofs(self, ofs):
-        self.ofs = ofs
-        return self
-
-class Reader:
-
-    """
-    Consume an interable as numbered lines or rows.  Callers use either
-        for num, line in reader.lines: ...
-    or
-        for num, row in reader.rows: ...
-    """
-
-    def __init__(self, delims, input):
-        self.delims = delims
-        self.items = input
-        self.lines = self.readlines(input)
-        self.rows = self.readrows(input)
-        self.items = input
-
-    def readlines(self, input):
-        """
-        Read input as lines; if lines have already been split to rows,
-        join them on the current output separator.
-        """
-        ofs = self.delims.ofs
-        for num, line in input:
-            if type(line) == str:
-                yield num, line
-            else:
-                yield num, ofs.join(map(str, line))
-
-    def readrows(self, input):
-        """
-        Reads input as rows; if lines have not yet been split to rows,
-        split them on the current input separator.  If not has been set, guess.
-        """
-        for num, line in input:
-            if type(line) == list:
-                yield num, line
-            elif self.delims.splitter:
-                yield num, self.delims.splitter(line)
-            else:
-                head = [(num, line)]
-                for num, line in input:
-                    head.append((num, line))
-                    if len(head) == 10:
-                        break
-                self.delims.withifs(guess_ifs(map(second, head)))
-                for num, line in head:
-                    yield num, self.delims.splitter(line)
+    for num, row in input:
+        print ofs.join(map(str, row))
 
 def guess_ifs(lines):
     """
@@ -188,6 +131,8 @@ def guess_ifs(lines):
     Otherwise use the one of (whitespace, comma, pipe) that appears
     most frequently.
     """
+    if len(lines) == 0:
+        return " "
     def occurrences(line, sep): 
         if sep == " ":
             return line.count(" ") + line.count("\t")
@@ -281,17 +226,17 @@ def step(name, args):
 
 @step(name="strip", args=[cast(str, "characters to remove")])
 def strip(input, chars):
-    for num, row in input.rows:
+    for num, row in input:
         yield num, map(lambda cell: cell.translate(None, chars))
 
 @step(name="head", args=[cast(int, "number of lines")])
 def head(input, count):
     if count <= 0:
         return
-    for num, item in input.items:
+    for num, row in input:
         if count <= 0:
             return
-        yield num, item
+        yield num, row
         count -= 1
 
 @step(name="tail", args=[cast(int, "number of lines")])
@@ -299,33 +244,33 @@ def tail(input, count):
     if count <= 0:
         return
     queue = co.deque()
-    for num, item in input.items:
+    for num, row in input:
         if len(queue) == count:
             queue.popleft()
-        queue.append((num, item))
-    for num, item in queue:
-        yield num, item
+        queue.append((num, row))
+    for num, row in queue:
+        yield num, row
 
 @step(name="headtail", args=[])
 def headtail(input):
     count = 0
     queue = co.deque()
-    for num, item in input.items:
+    for num, row in input:
         count += 1
         if count <= 10:
-            yield num, item
+            yield num, row
         else:
             if len(queue) == 10:
                 queue.popleft()
-            queue.append((num, item))
+            queue.append((num,  row))
     if len(queue) > 0:
-        yield 0, "--"
-        for num, item in queue:
-            yield num, item
+        yield 0, ["--"]
+        for num, row in queue:
+            yield num, row
 
 @step(name="keep", args=[colset()])
 def keep(input, colset):
-    for num, row in input.rows:
+    for num, row in input:
         newrow = []
         for index in colset.until(len(row)):
             newrow.append(row[index])
@@ -333,7 +278,7 @@ def keep(input, colset):
 
 @step(name="drop", args=[colset()])
 def drop(input, colset):
-    for num, row in input.rows:
+    for num, row in input:
         newrow = []
         for index in range(0, len(row)):
             if index not in colset:
@@ -343,13 +288,13 @@ def drop(input, colset):
 
 @step(name="to", args=[])
 def split(input):
-    for num, row in input.rows:
+    for num, row in input:
         yield num, row
 
 @step(name="neaten", args=[colset()])
 def neaten(input, colset):
     result = []
-    for num, row in input.rows:
+    for num, row in input:
         result.append((num, row))
     rows = map(second, result)
     maxlen = max(map(len, rows))
@@ -363,14 +308,14 @@ def neaten(input, colset):
 
 @step(name="ord", args=[])
 def inorder(input):
-    for num, row in input.rows:
+    for num, row in input:
         row.insert(0, num)
         yield num, row
 
 @step(name="percent", args=[colset()])
 def add_percent(input, colset):
     result = []
-    for num, row in input.rows:
+    for num, row in input:
         result.append((num, row))
     if not result:
         return
@@ -393,7 +338,7 @@ def add_percent(input, colset):
 @step(name="cum", args=[colset()])
 def add_cum(input, colset):
     result = []
-    for num, row in input.rows:
+    for num, row in input:
         result.append((num, row))
     if not result:
         return
@@ -422,7 +367,7 @@ def substitute(input, pat, rep, flags, colset):
             reflags = re.I
         else:
             die("Bad regexp flag: " + flag)
-    for num, row in input.rows:
+    for num, row in input:
         if num > 0:
             for index in colset.until(len(row)):
                 row[index] = pat.sub(rep, row[index], count)
@@ -431,34 +376,34 @@ def substitute(input, pat, rep, flags, colset):
 @step(name="left", args=[colset()])
 def pull_left(input, colset):
     # TODO optimize for fixed length
-    for num, row in input.rows:
+    for num, row in input:
         left, right = [], []
         for index in range(0, len(row)):
             if index in colset:
                 left.append(row[index])
             else:
                 right.append(row[index])
-        for item in right:
-            left.append(item)
+        for row in right:
+            left.append(row)
         yield num, left
 
 @step(name="right", args=[colset()])
 def pull_right(input, colset):
     # TODO optimize for fixed length
-    for num, row in input.rows:
+    for num, row in input:
         left, right = [], []
         for index in range(0, len(row)):
             if index in colset:
                 right.append(row[index])
             else:
                 left.append(row[index])
-        for item in right:
-            left.append(item)
+        for row in right:
+            left.append(row)
         yield num, left
 
 @step(name="round", args=[cast(int, "# of decimal places"), colset()])
 def rounding(input, places, colset):
-    for num, row in input.rows:
+    for num, row in input:
         for index in colset.until(len(row)):
             value = convert(row[index], locale.atof)
             if type(value) == float:

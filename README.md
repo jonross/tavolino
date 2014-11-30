@@ -23,5 +23,9 @@ Thoughts
 
 * Import pandas / matplotlib only when needed or performance will suffer.
 
+Design decisions
 
+* Feature to flip back and forth between column / line mode remains unused, and
+  is making metadata tracking too hard.  Get rid of it and split to columns on
+  the first action.
 

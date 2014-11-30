@@ -11,8 +11,8 @@ test(<<head 0>>, <<head 0>>, ps, <<
 >>, <<>>)
 
 test(<<head 3>>, <<head 3>>, ps, <<
-UID   PID  PPID   C STIME   TTY           TIME CMD
-    0     1     0   0 22Oct14 ??        25:02.89 /sbin/launchd
-    0    11     1   0 22Oct14 ??         0:12.72 /usr/libexec/UserEventAgent
+UID	PID	PPID	C	STIME	TTY	TIME	CMD
+0	1	0	0	22Oct14	??	25:02.89	/sbin/launchd
+0	11	1	0	22Oct14	??	0:12.72	/usr/libexec/UserEventAgent
 >>, <<>>)
 

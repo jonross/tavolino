@@ -43,7 +43,7 @@ if [ "" = "$ONLY" -o "$1" = "$ONLY" ]; then
 fi
 >>)
 
-test(<<Pass-thru>>, <<>>, ps, ps, <<>>)
+test(<<Pass-thru>>, <<>>, ps, psout, <<>>)
 
 m4_include(<<tests/sep.m4>>)
 
