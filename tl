@@ -17,15 +17,11 @@ Step = co.namedtuple("Step", "fn name argspecs")
 STEPS = {}
 SIP = HAS_HEADER = False
 NSAMPLES = 20
+NCOLUMNS = None
 
 ####################################################################################################
 
 def main(args):
-
-    # With no args, normalize whitespace
-
-    if len(args) == 0:
-        args = ["to", "tsv"]
 
     # Set aside filenames at start of args
 
@@ -71,9 +67,12 @@ def main(args):
         if ifs is None:
             ifs = guess_ifs(head)
         if ifs == " ":
-            splitter = lambda s: s.lstrip().split(None)
+            ifs = None
+        stripper = str.lstrip if ifs == " " else identity
+        if NCOLUMNS is not None:
+            splitter = lambda s: stripper(s).split(ifs, NCOLUMNS - 1)
         else:
-            splitter = lambda s: s.split(ifs)
+            splitter = lambda s: stripper(s).split(ifs)
         yield []
         lineno = 1
         for line in head:
@@ -87,7 +86,7 @@ def main(args):
 
         word = args.popleft()
         words = expandalias(word)
-        if words:
+        if words is not None:
             args.extendleft(reversed(words))
             continue
 
@@ -110,6 +109,12 @@ def main(args):
         step = STEPS.get(word) or die("Unknown step name: " + word)
         stepargs = parse(args, step.argspecs)
         input = step.fn((input or readrows(ifs)), *stepargs)
+
+    # With no args, normalize whitespace
+
+    if input is None:
+        input = split(readrows(ifs))
+        ofs = "\t"
 
     meta = next(input)
     for num, row in input:
@@ -142,7 +147,7 @@ def guess_ifs(lines):
 
 ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
     ("^csv$", ["fs", ","]),
-    ("^hdr|header$", []), # handled before arg parsing
+    ("^(hdr|header)$", []), # handled before arg parsing
     ("^ht$", ["headtail"]),
     ("^neat$", ["neaten"]),
     ("^nice$", ["neat", "1-", "ofs", "  "]),
@@ -294,7 +299,9 @@ def neaten(input, colset):
 
 @step(name="ord", args=[])
 def inorder(input):
-    yield next(input)
+    meta = next(input)
+    meta.insert(0, Metadata(int, int))
+    yield meta
     for num, row in input:
         row.insert(0, num)
         yield num, row
@@ -428,7 +435,7 @@ class Columns:
         return Columns(columns, rest)
 
     def until(self, max):
-        """ Iterate over the columns in the list, then if there is an open final range,
+        """Iterate over the columns in the list, then if there is an open final range,
         iterate over the values in that until max.
         """
         for index in self.list:
@@ -512,8 +519,11 @@ def reformat(col, **options):
     return [s.rjust(maxlen) for s in col]
 
 def convert(value, bias=None):
-    """Intuit the type of a value and convert it.  Anything not a string is returned
-    unchanged; otherwise we try ints, floats, and (eventually) dates."""
+    """Intuit the type of a value and convert it.  
+    
+    Anything not a string is returned unchanged; otherwise we 
+    try ints, floats, and (eventually) dates.
+    """
     typ = type(value)
     if typ != str:
         return value
@@ -535,8 +545,6 @@ def stripcommas(value):
     return value.translate(None, NUMCOMMA) if NUMCOMMA in value else value
 
 ####################################################################################################
-#
-# Column utils
 
 def warn(message):
     sys.stderr.write(message + "\n")
@@ -545,6 +553,7 @@ def die(message):
     warn(message)
     sys.exit(1)
 
+def identity(x): return x
 def first(x): return x[0]
 def second(x): return x[1]
 def isnone(x): return x is None
