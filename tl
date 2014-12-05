@@ -18,10 +18,7 @@ Step = namedtuple("Step", "fn name argspecs groups")
 GroupBy = namedtuple("Groups", "column aggregates")
 Aggregate = namedtuple("Aggregate", "name fn colset")
 
-SOMEINPUT = False
-HAS_HEADER = False
 NCOLUMNS = None
-GROUPBY = None
 
 ####################################################################################################
 
@@ -32,7 +29,7 @@ class State:
     def __init__(self, other=None):
         self.input = other.input if other else None
         self.header = other.header if other else False
-        self.smallinput = other.smallinput if other else False
+        self.someinput = other.someinput if other else False
         self.ifs = other.ifs if other else None
         self.ofs = other.ofs if other else "\t"
         self.groupby = other.groupby if other else None
@@ -45,19 +42,19 @@ class State:
         """Indicate whether there is a header row"""
         return changing(State(self), "header", flag)
 
-    def with_smallinput(controls, flag):
+    def with_someinput(self, flag):
         """Indicate whether we are limiting the input"""
-        return changing(State(self), "smallinput", flag)
+        return changing(State(self), "someinput", flag)
 
-    def with_ifs(controls, fs): 
+    def with_ifs(self, fs): 
         """Change input field separator"""
         return changing(State(self), "ifs", fs)
 
-    def with_ofs(controls, fs): 
+    def with_ofs(self, fs): 
         """Change output field separator"""
         return changing(State(self), "ofs", fs)
 
-    def with_groupby(controls, g):
+    def with_groupby(self, g):
         """Set or unset the current aggregate functions"""
         return changing(State(self), "groupby", g)
 
@@ -83,28 +80,27 @@ def main(args):
         sys.exit(1)
 
     state = State()
-    global SOMEINPUT, HAS_HEADER, GROUPBY
-    SOMEINPUT = "sip" in args
-    HAS_HEADER = "hdr" in args or "header" in args
+    state = state.with_someinput("sip" in args)
+    state = state.with_header("hdr" in args or "header" in args)
     ifs = None
     ofs = "\t"
 
     # Innermost input reader; handles stdin vs file list and applies line limit.
 
-    def readinput():
+    def readinput(some):
         lineno = 0
         for f in (files or [sys.stdin]):
             for line in (f if type(f) == file else open(f)):
                 lineno += 1
                 yield line.rstrip()
-                if SOMEINPUT and lineno == 1000:
+                if some and lineno == 1000:
                     return
 
     # Second-level input reader; splits to columns, guesses delimiters, and
     # tags with line numbers.
 
-    def readrows(ifs):
-        input = readinput()
+    def readrows(ifs, some):
+        input = readinput(some)
         head = list(islice(input, 0, NSAMPLES))
         if ifs is None:
             ifs = guess_ifs(head)
@@ -151,9 +147,9 @@ def main(args):
 
         step = STEPS.get(word) or die("Unknown step name: " + word)
 
-        if GROUPBY and not step.groups:
-            GROUPBY = None
-        elif not GROUPBY and step.groups:
+        if state.groupby and not step.groups:
+            state = state.with_groupby(None)
+        elif not state.groupby and step.groups:
             args.extendleft(reversed(["groupby", "0"]))
             continue
 
@@ -164,7 +160,7 @@ def main(args):
 
         stepargs = parse(args, step.argspecs)
         if not state.input:
-            state = state.with_input(readrows(ifs))
+            state = state.with_input(readrows(ifs, state.someinput))
         result = step.fn(state, *stepargs)
         if type(result) == list:
             args.extendleft(reversed(result))
@@ -174,7 +170,7 @@ def main(args):
     # With no args, normalize whitespace
 
     if state.input is None:
-        state = state.with_input(readrows(ifs))
+        state = state.with_input(readrows(ifs, state.someinput))
         state = state.with_input(split(state))
         ofs = "\t"
 
@@ -353,7 +349,7 @@ def neaten(state, colset):
     maxlen = max(map(len, rows))
     for index in colset.until(maxlen):
         column = [row[index] for row in rows]
-        newcolumn = reformat(column, justify=True, comma=True)
+        newcolumn = reformat(column, header=state.header, justify=True, comma=True)
         for row, cell in zip(rows, newcolumn):
             row[index] = cell
     for num, row in result:
@@ -362,7 +358,7 @@ def neaten(state, colset):
 @step(name="ord", args=[])
 def inorder(state):
     meta = next(state.input)
-    meta.insert(0, Metadata(int, int))
+    meta.insert(0, Metadata(int, int, state.header))
     yield meta
     for num, row in state.input:
         row.insert(0, num)
@@ -568,29 +564,31 @@ class Metadata:
 
     """Information about a column's type"""
 
-    def __init__(self, kind, converter, absent=False):
+    def __init__(self, kind, converter, header, absent=False):
         # Not enough data available to determine
         self.absent = absent
         # str, int, float or date
         self.kind = kind
         # How to convert values
         self._converter = converter
+        # Dataset has a header
+        self.header = header
 
     @staticmethod
-    def from_data(col):
+    def from_data(col, header):
         """Sample values from a column, ignoring a possible header, and return
         a new Metadata instance.
         """
-        if len(col) == 0 or len(col) <= 1 and HAS_HEADER:
-            return Metadata(str, str, true)
-        start = 1 if HAS_HEADER else 0
+        if len(col) == 0 or len(col) <= 1 and self.header:
+            return Metadata(str, str, header, true)
+        start = 1 if header else 0
         sample = map(convert, col[start:start+NSAMPLES])
         if all(type(x) == int for x in sample):
-            return Metadata(int, lambda x: convert(x, locale.atoi))
+            return Metadata(int, lambda x: convert(x, locale.atoi), header)
         elif all(type(x) == float for x in sample):
-            return Metadata(float, lambda x: convert(x, locale.atof))
+            return Metadata(float, lambda x: convert(x, locale.atof), header)
         else:
-            return Metadata(str, str)
+            return Metadata(str, str, header)
 
     def convert(self, col):
         """Convert a column of values, returning the first converted value
@@ -598,13 +596,13 @@ class Metadata:
         """
         if self.absent:
             return None, map(str, col)
-        start = 1 if HAS_HEADER else 0
+        start = 1 if self.header else 0
         result = col[:]
         for i in range(start, len(result)):
             result[i] = self._converter(col[i])
         return result[start], result
 
-def reformat(col, **options):
+def reformat(col, header=False, justify=False, comma=False):
 
     """Format a column of values.
     
@@ -613,9 +611,7 @@ def reformat(col, **options):
     for formatting floats.  Type values based on the first ten items.
     """
 
-    justify = "justify" in options
-    comma = "comma" in options
-    first, col = Metadata.from_data(col).convert(col)
+    first, col = Metadata.from_data(col, header).convert(col)
 
     if type(first) == str:
         if not justify:
