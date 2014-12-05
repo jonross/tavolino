@@ -14,8 +14,8 @@ RANGE = re.compile("^(\d+)-(\d*)$")
 NSAMPLES = 20
 STEPS = {}
 
-Step = namedtuple("Step", "fn name argspecs groups")
-GroupBy = namedtuple("Groups", "column aggregates")
+Step = namedtuple("Step", "fn name argspecs grouper consumer")
+GroupBy = namedtuple("GroupBy", "column aggregates")
 Aggregate = namedtuple("Aggregate", "name fn colset")
 
 NCOLUMNS = None
@@ -82,8 +82,6 @@ def main(args):
     state = State()
     state = state.with_someinput("sip" in args)
     state = state.with_header("hdr" in args or "header" in args)
-    ifs = None
-    ofs = "\t"
 
     # Innermost input reader; handles stdin vs file list and applies line limit.
 
@@ -128,28 +126,13 @@ def main(args):
             args.extendleft(reversed(words))
             continue
 
-        # Handle special names for changing field separator.
-        # TODO: redo as steps
-
-        if word in ["fs", "ifs", "ofs"]:
-            if len(args) == 0:
-                die("Missing field separator")
-            fs = args.popleft()
-            if word == "ifs":
-                ifs = fs
-            elif word == "ofs":
-                ofs = fs
-            else:
-                ifs = ofs = fs
-            continue
-
         # Find step by name.  Before parsing args, make sure grouping steps have a group.
 
         step = STEPS.get(word) or die("Unknown step name: " + word)
 
-        if state.groupby and not step.groups:
+        if state.groupby and not step.grouper:
             state = state.with_groupby(None)
-        elif not state.groupby and step.groups:
+        elif not state.groupby and step.grouper:
             args.extendleft(reversed(["groupby", "0"]))
             continue
 
@@ -159,24 +142,25 @@ def main(args):
         #  - return more args to process
 
         stepargs = parse(args, step.argspecs)
-        if not state.input:
-            state = state.with_input(readrows(ifs, state.someinput))
+        if step.consumer and not state.input:
+            state = state.with_input(readrows(state.ifs, state.someinput))
         result = step.fn(state, *stepargs)
         if type(result) == list:
             args.extendleft(reversed(result))
+        elif result.__class__ == State:
+            state = result
         else:
             state = state.with_input(result)
 
     # With no args, normalize whitespace
 
     if state.input is None:
-        state = state.with_input(readrows(ifs, state.someinput))
+        state = state.with_input(readrows(state.ifs, state.someinput))
         state = state.with_input(split(state))
-        ofs = "\t"
 
     meta = next(state.input)
     for num, row in state.input:
-        print ofs.join(map(str, row))
+        print state.ofs.join(map(str, row))
 
 def guess_ifs(lines):
     """Guess the correct input field separator given a sample of lines.
@@ -272,12 +256,24 @@ def optional(spec):
 #
 # Step definitions
 
-def step(name, args, groups=False):
+def step(name, args, grouper=False, consumer=True):
     def wrap(f):
-        step = Step(f, name, args, groups)
+        step = Step(f, name, args, grouper, consumer)
         STEPS[name] = step
         return f
     return wrap
+
+@step(name="ifs", args=[cast(str, "input field separator")], consumer=False)
+def set_ifs(state, fs):
+    return state.with_ifs(fs)
+
+@step(name="ofs", args=[cast(str, "output field separator")], consumer=False)
+def set_ifs(state, fs):
+    return state.with_ofs(fs)
+
+@step(name="fs", args=[cast(str, "field separator")], consumer=False)
+def set_ifs(state, fs):
+    return state.with_ifs(fs).with_ofs(fs)
 
 @step(name="strip", args=[cast(str, "characters to remove")])
 def strip(state, chars):
@@ -474,7 +470,7 @@ def rounding(state, places, colset):
 def groupby(state, column):
     """
     Start a new data group; subsequent grouping steps append their information to this, 
-    until a non-grouping step is encountered.  Note: this step does not have groups=True,
+    until a non-grouping step is encountered.  Note: this step does not have grouper=True,
     because if there is an active group, we should close it and start a new one.
     """
     global GROUPBY
@@ -502,22 +498,22 @@ def groupby(state, column):
 
     return dogroup(GROUPBY, state.input)
 
-@step(name="sum", args=[colset()], groups=True)
+@step(name="sum", args=[colset()], grouper=True, consumer=False)
 def dosum(state, colset):
     """Add a SUM aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("SUM", sum, colset))
 
-@step(name="average", args=[colset()], groups=True)
+@step(name="average", args=[colset()], grouper=True, consumer=False)
 def doavg(state, colset):
     """Add an AVERAGE aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("AVERAGE", avg, colset))
 
-@step(name="minimum", args=[colset()], groups=True)
+@step(name="minimum", args=[colset()], grouper=True, consumer=False)
 def doavg(state, colset):
     """Add a MIN aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("MINIMUM", min, colset))
 
-@step(name="maximum", args=[colset()], groups=True)
+@step(name="maximum", args=[colset()], grouper=True, consumer=False)
 def doavg(state, colset):
     """Add a MAX aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("MAXIMUM", max, colset))
