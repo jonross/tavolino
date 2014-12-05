@@ -2,7 +2,7 @@
 #
 # TODO: stop using Columns.list, not accurate
 
-import collections as co
+from collections import Counter, deque, namedtuple
 from itertools import islice
 import locale
 from os import path
@@ -11,13 +11,55 @@ import sys
 
 INTEGER = re.compile("^\d+$")
 RANGE = re.compile("^(\d+)-(\d*)$")
-
-Step = co.namedtuple("Step", "fn name argspecs")
-
-STEPS = {}
-SIP = HAS_HEADER = False
 NSAMPLES = 20
+STEPS = {}
+
+Step = namedtuple("Step", "fn name argspecs groups")
+GroupBy = namedtuple("Groups", "column aggregates")
+Aggregate = namedtuple("Aggregate", "name fn colset")
+
+SOMEINPUT = False
+HAS_HEADER = False
 NCOLUMNS = None
+GROUPBY = None
+
+####################################################################################################
+
+class State:
+
+    """Operational settings that change as we parse each step."""
+
+    def __init__(self, other=None):
+        self.input = other.input if other else None
+        self.header = other.header if other else False
+        self.smallinput = other.smallinput if other else False
+        self.ifs = other.ifs if other else None
+        self.ofs = other.ofs if other else "\t"
+        self.groupby = other.groupby if other else None
+
+    def with_input(self, it):
+        """Change the input iterator"""
+        return changing(State(self), "input", it)
+
+    def with_header(self, flag):
+        """Indicate whether there is a header row"""
+        return changing(State(self), "header", flag)
+
+    def with_smallinput(controls, flag):
+        """Indicate whether we are limiting the input"""
+        return changing(State(self), "smallinput", flag)
+
+    def with_ifs(controls, fs): 
+        """Change input field separator"""
+        return changing(State(self), "ifs", fs)
+
+    def with_ofs(controls, fs): 
+        """Change output field separator"""
+        return changing(State(self), "ofs", fs)
+
+    def with_groupby(controls, g):
+        """Set or unset the current aggregate functions"""
+        return changing(State(self), "groupby", g)
 
 ####################################################################################################
 
@@ -25,7 +67,7 @@ def main(args):
 
     # Set aside filenames at start of args
 
-    args = co.deque(args)
+    args = deque(args)
     files = []
     badcount = 0
 
@@ -40,10 +82,10 @@ def main(args):
     if badcount > 0:
         sys.exit(1)
 
-    global SIP, HAS_HEADER
-    SIP = "sip" in args
+    state = State()
+    global SOMEINPUT, HAS_HEADER, GROUPBY
+    SOMEINPUT = "sip" in args
     HAS_HEADER = "hdr" in args or "header" in args
-    input = None
     ifs = None
     ofs = "\t"
 
@@ -55,7 +97,7 @@ def main(args):
             for line in (f if type(f) == file else open(f)):
                 lineno += 1
                 yield line.rstrip()
-                if SIP and lineno == 1000:
+                if SOMEINPUT and lineno == 1000:
                     return
 
     # Second-level input reader; splits to columns, guesses delimiters, and
@@ -91,6 +133,7 @@ def main(args):
             continue
 
         # Handle special names for changing field separator.
+        # TODO: redo as steps
 
         if word in ["fs", "ifs", "ofs"]:
             if len(args) == 0:
@@ -104,20 +147,39 @@ def main(args):
                 ifs = ofs = fs
             continue
 
-        # Find step by name, parse args, and build another level of input iterator.
+        # Find step by name.  Before parsing args, make sure grouping steps have a group.
 
         step = STEPS.get(word) or die("Unknown step name: " + word)
+
+        if GROUPBY and not step.groups:
+            GROUPBY = None
+        elif not GROUPBY and step.groups:
+            args.extendleft(reversed(["groupby", "0"]))
+            continue
+
+        # Parse args, and run the step function.  This may:
+        #  - return the input unchanged, but have side effects
+        #  - wrap the input and return another iterator
+        #  - return more args to process
+
         stepargs = parse(args, step.argspecs)
-        input = step.fn((input or readrows(ifs)), *stepargs)
+        if not state.input:
+            state = state.with_input(readrows(ifs))
+        result = step.fn(state, *stepargs)
+        if type(result) == list:
+            args.extendleft(reversed(result))
+        else:
+            state = state.with_input(result)
 
     # With no args, normalize whitespace
 
-    if input is None:
-        input = split(readrows(ifs))
+    if state.input is None:
+        state = state.with_input(readrows(ifs))
+        state = state.with_input(split(state))
         ofs = "\t"
 
-    meta = next(input)
-    for num, row in input:
+    meta = next(state.input)
+    for num, row in state.input:
         print ofs.join(map(str, row))
 
 def guess_ifs(lines):
@@ -130,26 +192,26 @@ def guess_ifs(lines):
     if len(lines) == 0:
         return " "
     def occurrences(line, sep): 
-        if sep == " ":
-            return line.count(" ") + line.count("\t")
-        else:
-            return line.count(sep)
+        return (line.count(" ") + line.count("\t")) if sep == " " else line.count(sep)
     ntabs = [occurrences(line, "\t") for line in lines]
     if ntabs[0] > 0 and all(map(lambda n: n == ntabs[0], ntabs)):
         return "\t"
     counts = [[(occurrences(line, sep), sep) for sep in " ,|"] for line in lines]
     bests = [second(max(c, key=first)) for c in counts]
-    best = first(first(co.Counter(bests).most_common(1)))
+    best = first(first(Counter(bests).most_common(1)))
     # print >>sys.stderr, "The best separator is", best
     return best
 
 ####################################################################################################
 
 ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
+    ("^avg$", ["average"]),
     ("^csv$", ["fs", ","]),
     ("^(hdr|header)$", []), # handled before arg parsing
     ("^ht$", ["headtail"]),
     ("^neat$", ["neaten"]),
+    ("^max$", ["maximum"]),
+    ("^min$", ["minimum"]),
     ("^nice$", ["neat", "1-", "ofs", "  "]),
     ("^per$", ["percent"]),
     ("^psv$", ["fs", "|"]),
@@ -180,7 +242,7 @@ def expandsub(word):
 
 ####################################################################################################
 
-ArgSpec = co.namedtuple("ArgSpec", "function docstring optional")
+ArgSpec = namedtuple("ArgSpec", "function docstring optional")
 
 def parse(argq, argspecs):
     def parseone(spec):
@@ -214,35 +276,35 @@ def optional(spec):
 #
 # Step definitions
 
-def step(name, args):
+def step(name, args, groups=False):
     def wrap(f):
-        step = Step(f, name, args)
+        step = Step(f, name, args, groups)
         STEPS[name] = step
         return f
     return wrap
 
 @step(name="strip", args=[cast(str, "characters to remove")])
-def strip(input, chars):
-    yield next(input)
-    for num, row in input:
+def strip(state, chars):
+    yield next(state.input)
+    for num, row in state.input:
         yield num, map(lambda cell: cell.translate(None, chars))
 
 @step(name="head", args=[cast(int, "number of lines")])
-def head(input, count):
-    return islice(input, 0, count + 1)
+def head(state, count):
+    return islice(state.input, 0, count + 1)
 
 @step(name="tail", args=[cast(int, "number of lines")])
-def tail(input, count):
-    yield next(input)
-    for x in co.deque(input, count):
+def tail(state, count):
+    yield next(state.input)
+    for x in deque(state.input, count):
         yield x
 
 @step(name="headtail", args=[])
-def headtail(input):
-    yield next(input)
+def headtail(state):
+    yield next(state.input)
     count = 0
-    queue = co.deque()
-    for num, row in input:
+    queue = deque()
+    for num, row in state.input:
         count += 1
         if count <= 10:
             yield num, row
@@ -256,18 +318,18 @@ def headtail(input):
             yield num, row
 
 @step(name="keep", args=[colset()])
-def keep(input, colset):
-    yield next(input)
-    for num, row in input:
+def keep(state, colset):
+    yield next(state.input)
+    for num, row in state.input:
         newrow = []
         for index in colset.until(len(row)):
             newrow.append(row[index])
         yield num, newrow
 
 @step(name="drop", args=[colset()])
-def drop(input, colset):
-    yield next(input)
-    for num, row in input:
+def drop(state, colset):
+    yield next(state.input)
+    for num, row in state.input:
         newrow = []
         for index in range(0, len(row)):
             if index not in colset:
@@ -276,16 +338,16 @@ def drop(input, colset):
             yield num, newrow
 
 @step(name="to", args=[])
-def split(input):
-    yield next(input)
-    for num, row in input:
+def split(state):
+    yield next(state.input)
+    for num, row in state.input:
         yield num, row
 
 @step(name="neaten", args=[colset()])
-def neaten(input, colset):
-    yield next(input)
+def neaten(state, colset):
+    yield next(state.input)
     result = []
-    for num, row in input:
+    for num, row in state.input:
         result.append((num, row))
     rows = map(second, result)
     maxlen = max(map(len, rows))
@@ -298,19 +360,19 @@ def neaten(input, colset):
         yield num, row
 
 @step(name="ord", args=[])
-def inorder(input):
-    meta = next(input)
+def inorder(state):
+    meta = next(state.input)
     meta.insert(0, Metadata(int, int))
     yield meta
-    for num, row in input:
+    for num, row in state.input:
         row.insert(0, num)
         yield num, row
 
 @step(name="percent", args=[colset()])
-def add_percent(input, colset):
-    yield next(input)
+def add_percent(state, colset):
+    yield next(state.input)
     result = []
-    for num, row in input:
+    for num, row in state.input:
         result.append((num, row))
     if not result:
         return
@@ -331,10 +393,10 @@ def add_percent(input, colset):
         yield num, row
 
 @step(name="cum", args=[colset()])
-def add_cum(input, colset):
-    yield next(input)
+def add_cum(state, colset):
+    yield next(state.input)
     result = []
-    for num, row in input:
+    for num, row in state.input:
         result.append((num, row))
     if not result:
         return
@@ -351,8 +413,8 @@ def add_cum(input, colset):
         yield num, row
 
 @step(name="sub", args=[cast(re.compile, "pattern"), cast(str, "replacement"), cast(str, "flags"), colset()])
-def substitute(input, pat, rep, flags, colset):
-    yield next(input)
+def substitute(state, pat, rep, flags, colset):
+    yield next(state.input)
     count = 1
     reflags = 0
     for flag in flags:
@@ -364,17 +426,17 @@ def substitute(input, pat, rep, flags, colset):
             reflags = re.I
         else:
             die("Bad regexp flag: " + flag)
-    for num, row in input:
+    for num, row in state.input:
         if num > 0:
             for index in colset.until(len(row)):
                 row[index] = pat.sub(rep, row[index], count)
         yield num, row
 
 @step(name="left", args=[colset()])
-def pull_left(input, colset):
-    yield next(input)
+def pull_left(state, colset):
+    yield next(state.input)
     # TODO optimize for fixed length
-    for num, row in input:
+    for num, row in state.input:
         left, right = [], []
         for index in range(0, len(row)):
             if index in colset:
@@ -386,10 +448,10 @@ def pull_left(input, colset):
         yield num, left
 
 @step(name="right", args=[colset()])
-def pull_right(input, colset):
-    yield next(input)
+def pull_right(state, colset):
+    yield next(state.input)
     # TODO optimize for fixed length
-    for num, row in input:
+    for num, row in state.input:
         left, right = [], []
         for index in range(0, len(row)):
             if index in colset:
@@ -401,14 +463,68 @@ def pull_right(input, colset):
         yield num, left
 
 @step(name="round", args=[cast(int, "# of decimal places"), colset()])
-def rounding(input, places, colset):
-    yield next(input)
-    for num, row in input:
+def rounding(state, places, colset):
+    yield next(state.input)
+    for num, row in state.input:
         for index in colset.until(len(row)):
             value = convert(row[index], locale.atof)
             if type(value) == float:
                 row[index] = round(value, places)
         yield num, row
+
+####################################################################################################
+
+@step(name="groupby", args=[cast(int, "column number")])
+def groupby(state, column):
+    """
+    Start a new data group; subsequent grouping steps append their information to this, 
+    until a non-grouping step is encountered.  Note: this step does not have groups=True,
+    because if there is an active group, we should close it and start a new one.
+    """
+    global GROUPBY
+    GROUPBY = GroupBy(column - 1, [])
+    def dogroup(groupby, input):
+        meta = next(input)
+        yield meta
+        groups = defaultdict(lambda: [])
+        if groupby.column == 0:
+            groups[0] = map(second, input)
+        else:
+            for _, row in input:
+                groups[row[groupby.column]].append(row)
+        for key in groups:
+            used = set(groupby.column)
+            columns = [m.convert(c) for m, c in zip(meta, transpose(groups[key]))]
+            results = [None] * meta.size
+            for agg in group.aggregates:
+                for index in agg.colset:
+                    used.add(index)
+                    results[index] = agg.fn(columns[index])
+            groups[key] = [results[index] for index in sorted(used)]
+        for num, group in enumerate(groups.iteritems()):
+            yield num, group
+
+    return dogroup(GROUPBY, state.input)
+
+@step(name="sum", args=[colset()], groups=True)
+def dosum(state, colset):
+    """Add a SUM aggregate to the established GroupBy"""
+    GROUPBY.aggregates.append(Aggregate("SUM", sum, colset))
+
+@step(name="average", args=[colset()], groups=True)
+def doavg(state, colset):
+    """Add an AVERAGE aggregate to the established GroupBy"""
+    GROUPBY.aggregates.append(Aggregate("AVERAGE", avg, colset))
+
+@step(name="minimum", args=[colset()], groups=True)
+def doavg(state, colset):
+    """Add a MIN aggregate to the established GroupBy"""
+    GROUPBY.aggregates.append(Aggregate("MINIMUM", min, colset))
+
+@step(name="maximum", args=[colset()], groups=True)
+def doavg(state, colset):
+    """Add a MAX aggregate to the established GroupBy"""
+    GROUPBY.aggregates.append(Aggregate("MAXIMUM", max, colset))
 
 ####################################################################################################
 #
@@ -558,8 +674,7 @@ def first(x): return x[0]
 def second(x): return x[1]
 def isnone(x): return x is None
 def notnone(x): return x is not None
-def consume(x): 
-    for y in x: pass
+def changing(obj, attr, val): return setattr(obj, attr, val) or obj
 
 ####################################################################################################
 
