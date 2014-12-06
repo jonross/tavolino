@@ -44,10 +44,8 @@ if [ "" = "$ONLY" -o "$1" = "$ONLY" ]; then
 fi
 >>)
 
-test(<<Pass-thru>>, <<>>, ps, psout, <<>>)
-
 m4_include(<<tests/inputs.m4>>)
-
+m4_include(<<tests/misc.m4>>)
 m4_include(<<tests/head.m4>>)
 m4_include(<<tests/tail.m4>>)
 m4_include(<<tests/headtail.m4>>)
