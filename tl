@@ -18,8 +18,6 @@ Step = namedtuple("Step", "fn name argspecs grouper consumer")
 GroupBy = namedtuple("GroupBy", "column aggregates")
 Aggregate = namedtuple("Aggregate", "name fn colset")
 
-NCOLUMNS = None
-
 ####################################################################################################
 
 class State:
@@ -33,6 +31,7 @@ class State:
         self.ifs = other.ifs if other else None
         self.ofs = other.ofs if other else "\t"
         self.groupby = other.groupby if other else None
+        self.maxcols = other.maxcols if other else None
 
     def with_input(self, it):
         """Change the input iterator"""
@@ -42,9 +41,9 @@ class State:
         """Indicate whether there is a header row"""
         return changing(State(self), "header", flag)
 
-    def with_someinput(self, numlines):
+    def with_someinput(self, limit):
         """Set limit on input lines"""
-        return changing(State(self), "someinput", numlines)
+        return changing(State(self), "someinput", limit)
 
     def with_ifs(self, fs): 
         """Change input field separator"""
@@ -57,6 +56,10 @@ class State:
     def with_groupby(self, g):
         """Set or unset the current aggregate functions"""
         return changing(State(self), "groupby", g)
+
+    def with_maxcols(self, limit):
+        """Set the maximum # of columns to split into"""
+        return changing(State(self), "maxcols", limit)
 
 ####################################################################################################
 
@@ -97,7 +100,7 @@ def main(args):
     # Second-level input reader; splits to columns, guesses delimiters, and
     # tags with line numbers.
 
-    def readrows(ifs, limit):
+    def readrows(ifs, maxcols, limit):
         input = readinput(limit)
         head = list(islice(input, 0, NSAMPLES))
         if ifs is None:
@@ -105,8 +108,8 @@ def main(args):
         if ifs == " ":
             ifs = None
         stripper = str.lstrip if ifs == " " else identity
-        if NCOLUMNS is not None:
-            splitter = lambda s: stripper(s).split(ifs, NCOLUMNS - 1)
+        if maxcols is not None:
+            splitter = lambda s: stripper(s).split(ifs, maxcols - 1 if maxcols > 0 else 0)
         else:
             splitter = lambda s: stripper(s).split(ifs)
         yield []
@@ -143,7 +146,7 @@ def main(args):
 
         stepargs = parse(args, step.argspecs)
         if step.consumer and not state.input:
-            state = state.with_input(readrows(state.ifs, state.someinput))
+            state = state.with_input(readrows(state.ifs, state.maxcols, state.someinput))
         result = step.fn(state, *stepargs)
         if type(result) == list:
             args.extendleft(reversed(result))
@@ -155,7 +158,7 @@ def main(args):
     # With no args, normalize whitespace
 
     if state.input is None:
-        state = state.with_input(readrows(state.ifs, state.someinput))
+        state = state.with_input(readrows(state.ifs, state.maxcols, state.someinput))
         state = state.with_input(split(state))
 
     meta = next(state.input)
@@ -191,6 +194,7 @@ ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
     ("^ht$", ["headtail"]),
     ("^neat$", ["neaten"]),
     ("^max$", ["maximum"]),
+    ("^(mc|maxcols?)$", ["maxcolumns"]),
     ("^min$", ["minimum"]),
     ("^nice$", ["neat", "1-", "ofs", "  "]),
     ("^per$", ["percent"]),
@@ -278,6 +282,10 @@ def set_ifs(state, fs):
 @step(name="just", args=[cast(int, "line limit")], consumer=False)
 def set_someinput(state, numlines):
     return state.with_someinput(numlines)
+
+@step(name="maxcolumns", args=[cast(int, "column limit")], consumer=False)
+def set_maxcols(state, limit):
+    return state.with_maxcols(limit)
 
 ####################################################################################################
 #
