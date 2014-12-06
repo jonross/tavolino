@@ -1,6 +1,4 @@
 #!/usr/bin/python2.7
-#
-# TODO: stop using Columns.list, not accurate
 
 from collections import Counter, deque, namedtuple
 from itertools import islice
@@ -97,8 +95,7 @@ def main(args):
                 if lineno == limit:
                     return
 
-    # Second-level input reader; splits to columns, guesses delimiters, and
-    # tags with line numbers.
+    # Second-level input reader; splits to columns, guesses delimiters.
 
     def readrows(ifs, maxcols, limit):
         input = readinput(limit)
@@ -113,13 +110,10 @@ def main(args):
         else:
             splitter = lambda s: stripper(s).split(ifs)
         yield []
-        lineno = 1
         for line in head:
-            yield lineno, splitter(line)
-            lineno += 1
+            yield splitter(line)
         for line in input:
-            yield lineno, splitter(line)
-            lineno += 1
+            yield splitter(line)
 
     while len(args) > 0:
 
@@ -162,7 +156,7 @@ def main(args):
         state = state.with_input(split(state))
 
     meta = next(state.input)
-    for num, row in state.input:
+    for row in state.input:
         print state.ofs.join(map(str, row))
 
 def guess_ifs(lines):
@@ -294,8 +288,8 @@ def set_maxcols(state, limit):
 @step(name="strip", args=[cast(str, "characters to remove")])
 def strip(state, chars):
     yield next(state.input)
-    for num, row in state.input:
-        yield num, map(lambda cell: cell.translate(None, chars))
+    for row in state.input:
+        yield map(lambda cell: cell.translate(None, chars))
 
 @step(name="head", args=[cast(int, "number of lines")])
 def head(state, count):
@@ -312,79 +306,79 @@ def headtail(state):
     yield next(state.input)
     count = 0
     queue = deque()
-    for num, row in state.input:
+    for row in state.input:
         count += 1
         if count <= 10:
-            yield num, row
+            yield row
         else:
             if len(queue) == 10:
                 queue.popleft()
-            queue.append((num,  row))
+            queue.append(row)
     if len(queue) > 0:
-        yield 0, ["--"]
-        for num, row in queue:
-            yield num, row
+        yield ["--"]
+        for row in queue:
+            yield row
 
 @step(name="keep", args=[colset()])
 def keep(state, colset):
     yield next(state.input)
-    for num, row in state.input:
+    for row in state.input:
         newrow = []
         for index in colset.until(len(row)):
             newrow.append(row[index])
-        yield num, newrow
+        yield newrow
 
 @step(name="drop", args=[colset()])
 def drop(state, colset):
     yield next(state.input)
-    for num, row in state.input:
+    for row in state.input:
         newrow = []
         for index in range(0, len(row)):
             if index not in colset:
                 newrow.append(row[index])
         if len(newrow) > 0:
-            yield num, newrow
+            yield newrow
 
 @step(name="to", args=[])
 def split(state):
     yield next(state.input)
-    for num, row in state.input:
-        yield num, row
+    for row in state.input:
+        yield row
 
 @step(name="neaten", args=[colset()])
 def neaten(state, colset):
     yield next(state.input)
-    result = []
-    for num, row in state.input:
-        result.append((num, row))
-    rows = map(second, result)
+    rows = []
+    for row in state.input:
+        rows.append(row)
     maxlen = max(map(len, rows))
     for index in colset.until(maxlen):
         column = [row[index] for row in rows]
         newcolumn = reformat(column, header=state.header, justify=True, comma=True)
         for row, cell in zip(rows, newcolumn):
             row[index] = cell
-    for num, row in result:
-        yield num, row
+    for row in rows:
+        yield row
 
 @step(name="ord", args=[])
 def inorder(state):
     meta = next(state.input)
     meta.insert(0, Metadata(int, int, state.header))
     yield meta
-    for num, row in state.input:
-        row.insert(0, num)
-        yield num, row
+    lineno = 1
+    for row in state.input:
+        row.insert(0, lineno)
+        yield row
+        lineno += 1
 
 @step(name="percent", args=[colset()])
 def add_percent(state, colset):
     yield next(state.input)
-    result = []
-    for num, row in state.input:
-        result.append((num, row))
+    rows = []
+    for row in state.input:
+        rows.append(row)
     if not result:
         return
-    rows = map(second, result)
     offset = 0
     for index in range(0, len(rows[0])):
         if index in colset:
@@ -397,18 +391,17 @@ def add_percent(state, colset):
             for row, percent in zip(rows, percents):
                 row.insert(index + offset + 1, percent)
             offset += 1
-    for num, row in result:
-        yield num, row
+    for row in rows:
+        yield row
 
 @step(name="cum", args=[colset()])
 def add_cum(state, colset):
     yield next(state.input)
-    result = []
-    for num, row in state.input:
-        result.append((num, row))
+    rows = []
+    for row in state.input:
+        rows.append(row)
     if not result:
         return
-    rows = map(second, result)
     offset = 0
     for index in range(0, len(rows[0])):
         if index in colset:
@@ -417,8 +410,8 @@ def add_cum(state, colset):
                 cum += row[index + offset]
                 row.insert(index + offset + 1, cum)
             offset += 1
-    for num, row in result:
-        yield num, row
+    for row in rows:
+        yield row
 
 @step(name="sub", args=[cast(re.compile, "pattern"), cast(str, "replacement"), cast(str, "flags"), colset()])
 def substitute(state, pat, rep, flags, colset):
@@ -434,17 +427,16 @@ def substitute(state, pat, rep, flags, colset):
             reflags = re.I
         else:
             die("Bad regexp flag: " + flag)
-    for num, row in state.input:
-        if num > 0:
-            for index in colset.until(len(row)):
-                row[index] = pat.sub(rep, row[index], count)
-        yield num, row
+    for row in state.input:
+        for index in colset.until(len(row)):
+            row[index] = pat.sub(rep, row[index], count)
+        yield row
 
 @step(name="left", args=[colset()])
 def pull_left(state, colset):
     yield next(state.input)
     # TODO optimize for fixed length
-    for num, row in state.input:
+    for row in state.input:
         left, right = [], []
         for index in range(0, len(row)):
             if index in colset:
@@ -453,13 +445,13 @@ def pull_left(state, colset):
                 right.append(row[index])
         for row in right:
             left.append(row)
-        yield num, left
+        yield left
 
 @step(name="right", args=[colset()])
 def pull_right(state, colset):
     yield next(state.input)
     # TODO optimize for fixed length
-    for num, row in state.input:
+    for row in state.input:
         left, right = [], []
         for index in range(0, len(row)):
             if index in colset:
@@ -468,17 +460,17 @@ def pull_right(state, colset):
                 left.append(row[index])
         for row in right:
             left.append(row)
-        yield num, left
+        yield left
 
 @step(name="round", args=[cast(int, "# of decimal places"), colset()])
 def rounding(state, places, colset):
     yield next(state.input)
-    for num, row in state.input:
+    for row in state.input:
         for index in colset.until(len(row)):
             value = convert(row[index], locale.atof)
             if type(value) == float:
                 row[index] = round(value, places)
-        yield num, row
+        yield row
 
 ####################################################################################################
 
@@ -498,7 +490,7 @@ def groupby(state, column):
         if groupby.column == 0:
             groups[0] = map(second, input)
         else:
-            for _, row in input:
+            for row in input:
                 groups[row[groupby.column]].append(row)
         for key in groups:
             used = set(groupby.column)
@@ -509,8 +501,8 @@ def groupby(state, column):
                     used.add(index)
                     results[index] = agg.fn(columns[index])
             groups[key] = [results[index] for index in sorted(used)]
-        for num, group in enumerate(groups.iteritems()):
-            yield num, group
+        for group in enumerate(groups.iteritems()):
+            yield group
 
     return dogroup(GROUPBY, state.input)
 
