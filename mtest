@@ -13,6 +13,7 @@ m4_changequote(`<<', `>>')
 
 cleanup() {
     rm -f t_std{out,err}_{expected,actual}
+    rm -f t.? t.?.Z t.?.gz
 }
 
 trap cleanup 0
@@ -56,6 +57,7 @@ m4_include(<<tests/sep.m4>>)
 m4_include(<<tests/neat.m4>>)
 m4_include(<<tests/leftright.m4>>)
 m4_include(<<tests/round.m4>>)
+m4_include(<<tests/files.m4>>)
 
 if [[ $nfailures > 0 ]]; then
     exit 1

@@ -29,7 +29,7 @@ class State:
     def __init__(self, other=None):
         self.input = other.input if other else None
         self.header = other.header if other else False
-        self.someinput = other.someinput if other else False
+        self.someinput = other.someinput if other else 0
         self.ifs = other.ifs if other else None
         self.ofs = other.ofs if other else "\t"
         self.groupby = other.groupby if other else None
@@ -42,9 +42,9 @@ class State:
         """Indicate whether there is a header row"""
         return changing(State(self), "header", flag)
 
-    def with_someinput(self, flag):
-        """Indicate whether we are limiting the input"""
-        return changing(State(self), "someinput", flag)
+    def with_someinput(self, numlines):
+        """Set limit on input lines"""
+        return changing(State(self), "someinput", numlines)
 
     def with_ifs(self, fs): 
         """Change input field separator"""
@@ -80,25 +80,25 @@ def main(args):
         sys.exit(1)
 
     state = State()
-    state = state.with_someinput("sip" in args)
+    state = state.with_someinput(1000 if "some" in args else 0)
     state = state.with_header("hdr" in args or "header" in args)
 
     # Innermost input reader; handles stdin vs file list and applies line limit.
 
-    def readinput(some):
+    def readinput(limit):
         lineno = 0
         for f in (files or [sys.stdin]):
             for line in (f if type(f) == file else open(f)):
                 lineno += 1
                 yield line.rstrip()
-                if some and lineno == 1000:
+                if lineno == limit:
                     return
 
     # Second-level input reader; splits to columns, guesses delimiters, and
     # tags with line numbers.
 
-    def readrows(ifs, some):
-        input = readinput(some)
+    def readrows(ifs, limit):
+        input = readinput(limit)
         head = list(islice(input, 0, NSAMPLES))
         if ifs is None:
             ifs = guess_ifs(head)
@@ -196,7 +196,7 @@ ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
     ("^per$", ["percent"]),
     ("^psv$", ["fs", "|"]),
     ("^s[/-_=,]", lambda word: expandsub(word)),
-    ("^sip$", []), # handled before arg parsing
+    ("^some$", []), # handled before arg parsing
     ("^ssv$", ["fs", " "]),
     ("^tsv$", ["fs", "\t"]),
     ]
@@ -253,8 +253,6 @@ def optional(spec):
     return ArgSpec(spec.function, spec.docstring, True)
 
 ####################################################################################################
-#
-# Step definitions
 
 def step(name, args, grouper=False, consumer=True):
     def wrap(f):
@@ -262,6 +260,8 @@ def step(name, args, grouper=False, consumer=True):
         STEPS[name] = step
         return f
     return wrap
+
+# These steps change processing but don't consume input
 
 @step(name="ifs", args=[cast(str, "input field separator")], consumer=False)
 def set_ifs(state, fs):
@@ -274,6 +274,14 @@ def set_ifs(state, fs):
 @step(name="fs", args=[cast(str, "field separator")], consumer=False)
 def set_ifs(state, fs):
     return state.with_ifs(fs).with_ofs(fs)
+
+@step(name="just", args=[cast(int, "line limit")], consumer=False)
+def set_someinput(state, numlines):
+    return state.with_someinput(numlines)
+
+####################################################################################################
+#
+# Step definitions
 
 @step(name="strip", args=[cast(str, "characters to remove")])
 def strip(state, chars):
@@ -575,7 +583,7 @@ class Metadata:
         """Sample values from a column, ignoring a possible header, and return
         a new Metadata instance.
         """
-        if len(col) == 0 or len(col) <= 1 and self.header:
+        if len(col) == 0 or len(col) <= 1 and header:
             return Metadata(str, str, header, true)
         start = 1 if header else 0
         sample = map(convert, col[start:start+NSAMPLES])
