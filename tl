@@ -229,11 +229,6 @@ def parse(argq, argspecs):
         return None if spec.optional else die("Missing argument, expected " + spec.docstring)
     return filter(notnone, map(parseone, argspecs))
 
-def oneof(docstring, choices):
-    def parse(arg):
-        return arg if arg in choices else None
-    return ArgSpec(parse, docstring, false)
-
 def colset(docstring="column expression"):
     def parse(arg):
         return Columns.from_string(arg)
@@ -472,6 +467,22 @@ def rounding(state, places, colset):
                 row[index] = round(value, places)
         yield row
 
+@step(name="redate", args=[cast(str, "date format"), colset()])
+def redate(state, format, colset):
+    import datetime as dt, dateutil.parser as dp
+    for row in state.input:
+        for index in colset.until(len(row)):
+            epoch = convert(row[index], int)
+            if type(epoch) == int:
+                date = dt.datetime.fromtimestamp(epoch)
+            else:
+                try:
+                    date = dp.parse(row[index])
+                except ValueError as e:
+                    continue
+            row[index] = date.strftime(format)
+        yield row
+
 ####################################################################################################
 
 @step(name="groupby", args=[cast(int, "column number")])
@@ -640,6 +651,8 @@ def convert(value, bias=None):
     Anything not a string is returned unchanged; otherwise we 
     try ints, floats, and (eventually) dates.
     """
+    if value is None:
+        return None
     typ = type(value)
     if typ != str:
         return value
@@ -657,10 +670,10 @@ def convert(value, bias=None):
         except:
             return value
 
+####################################################################################################
+
 def stripcommas(value):
     return value.translate(None, NUMCOMMA) if NUMCOMMA in value else value
-
-####################################################################################################
 
 def warn(message):
     sys.stderr.write(message + "\n")

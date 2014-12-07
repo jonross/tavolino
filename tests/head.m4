@@ -16,3 +16,5 @@ UID	PID	PPID	C	STIME	TTY	TIME	CMD
 0	11	1	0	22Oct14	??	0:12.72	/usr/libexec/UserEventAgent
 >>, <<>>)
 
+test(<<head 100>>, <<head 100>>, ps, psout, <<>>)
+

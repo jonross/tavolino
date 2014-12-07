@@ -16,3 +16,4 @@ test(<<tail 3>>, <<tail 3>>, ps, <<
 0	19	1	0	22Oct14	??	0:27.40	/usr/sbin/syslogd
 >>, <<>>)
 
+test(<<tail 100>>, <<tail 100>>, ps, psout, <<>>)

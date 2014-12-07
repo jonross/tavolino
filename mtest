@@ -57,6 +57,7 @@ m4_include(<<tests/leftright.m4>>)
 m4_include(<<tests/round.m4>>)
 m4_include(<<tests/files.m4>>)
 m4_include(<<tests/maxcols.m4>>)
+m4_include(<<tests/redate.m4>>)
 
 if [[ $nfailures > 0 ]]; then
     exit 1

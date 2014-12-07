@@ -29,23 +29,3 @@ pivot() {
             print "\t".join([index] + [dic[key] for key in keys])
     ' "$1"
 }
-
-redate() {
-    python2.7 -c 'if True:
-        import datetime as dt, dateutil.parser as dp, modsquad as m
-        newformat = "'"$1"'"
-        columns = m.parse_columns("'"$2"'")
-        for row in m.tsv_input():
-            for c in columns:
-                epoch = m.as_integer(row[c])
-                if epoch is not None:
-                    date = dt.datetime.fromtimestamp(epoch)
-                else:
-                    try:
-                        date = dp.parse(row[c])
-                    except ValueError as e:
-                        m.die("Failed to parse " + row[c] + " as date")
-                row[c] = date.strftime(newformat)
-            print "\t".join(row)
-    '
-}
