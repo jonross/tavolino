@@ -15,33 +15,12 @@ MAXCOLUMNS = None
 HEADERROW = False
 INPUTSEP = None
 OUTPUTSEP = "\t"
+GROUPBY = None
 STEPS = {}
 
 Step = namedtuple("Step", "fn name argspecs grouper consumer")
 GroupBy = namedtuple("GroupBy", "column aggregates")
 Aggregate = namedtuple("Aggregate", "name fn colset")
-
-####################################################################################################
-
-class State:
-
-    """Operational settings that change as we parse each step."""
-
-    def __init__(self, other=None):
-        self.input = other.input if other else None
-        self.groupby = other.groupby if other else None
-
-    def with_input(self, it):
-        """Change the input iterator"""
-        new = State(self)
-        new.input = it
-        return new
-
-    def with_groupby(self, g):
-        """Set or unset the current aggregate functions"""
-        new = State(self)
-        new.groupby = g
-        return new
 
 ####################################################################################################
 
@@ -63,8 +42,6 @@ def main(args):
 
     if badcount > 0:
         sys.exit(1)
-
-    state = State()
 
     global MAXLINES
     MAXLINES = 1000 if "some" in args else 0
@@ -103,6 +80,8 @@ def main(args):
         for line in input:
             yield splitter(line)
 
+    input = None
+
     while len(args) > 0:
 
         word = args.popleft()
@@ -114,11 +93,8 @@ def main(args):
         # Find step by name.  Before parsing args, make sure grouping steps have a group.
 
         step = STEPS.get(word) or die("Unknown step name: " + word)
-
-        if state.groupby and not step.grouper:
-            state = state.with_groupby(None)
-        elif not state.groupby and step.grouper:
-            args.extendleft(reversed(["groupby", "0"]))
+        if step.grouper and not GROUPBY:
+            args.extendleft(reversed(["groupby", "0", word]))
             continue
 
         # Parse args, and run the step function.  This may:
@@ -127,24 +103,22 @@ def main(args):
         #  - return more args to process
 
         stepargs = parse(args, step.argspecs)
-        if step.consumer and not state.input:
-            state = state.with_input(readrows(INPUTSEP, MAXCOLUMNS, MAXLINES))
-        result = step.fn(state, *stepargs)
+        if step.consumer and not input:
+            input = readrows(INPUTSEP, MAXCOLUMNS, MAXLINES)
+        result = step.fn(input, *stepargs)
         if type(result) == list:
             args.extendleft(reversed(result))
-        elif result.__class__ == State:
-            state = result
-        else:
-            state = state.with_input(result)
+        elif result:
+            input = result
 
     # With no args, normalize whitespace
 
-    if state.input is None:
-        state = state.with_input(readrows(INPUTSEP, MAXCOLUMNS, MAXLINES))
-        state = state.with_input(split(state))
+    if input is None:
+        input = readrows(INPUTSEP, MAXCOLUMNS, MAXLINES)
+        input = split(input)
 
-    meta = next(state.input)
-    for row in state.input:
+    meta = next(input)
+    for row in input:
         print OUTPUTSEP.join(map(str, row))
 
 def guess_ifs(lines):
@@ -245,31 +219,27 @@ def step(name, args, grouper=False, consumer=True):
 # These steps change processing but don't consume input
 
 @step(name="ifs", args=[cast(str, "input field separator")], consumer=False)
-def set_ifs(state, fs):
+def set_ifs(input, fs):
     global INPUTSEP
     INPUTSEP = fs
-    return state
 
 @step(name="ofs", args=[cast(str, "output field separator")], consumer=False)
-def set_ofs(state, fs):
+def set_ofs(input, fs):
     global OUTPUTSEP
     OUTPUTSEP = fs
-    return state
 
 @step(name="fs", args=[cast(str, "field separator")], consumer=False)
-def set_fs(state, fs):
-    set_ifs(state, fs)
-    set_ofs(state, fs)
-    return state
+def set_fs(input, fs):
+    set_ifs(input, fs)
+    set_ofs(input, fs)
 
 @step(name="just", args=[cast(int, "line limit")], consumer=False)
-def set_limit(state, numlines):
+def set_limit(input, numlines):
     global MAXLINES
     MAXLINES = numlines
-    return state
 
 @step(name="maxcolumns", args=[cast(int, "column limit")], consumer=False)
-def set_maxcols(state, limit):
+def set_maxcols(input, limit):
     global MAXCOLUMNS
     MAXCOLUMNS = limit
 
@@ -278,27 +248,27 @@ def set_maxcols(state, limit):
 # Step definitions
 
 @step(name="strip", args=[cast(str, "characters to remove")])
-def strip(state, chars):
-    yield next(state.input)
-    for row in state.input:
+def strip(input, chars):
+    yield next(input)
+    for row in input:
         yield map(lambda cell: cell.translate(None, chars))
 
 @step(name="head", args=[cast(int, "number of lines")])
-def head(state, count):
-    return islice(state.input, 0, count + 1)
+def head(input, count):
+    return islice(input, 0, count + 1)
 
 @step(name="tail", args=[cast(int, "number of lines")])
-def tail(state, count):
-    yield next(state.input)
-    for x in deque(state.input, count):
+def tail(input, count):
+    yield next(input)
+    for x in deque(input, count):
         yield x
 
 @step(name="headtail", args=[])
-def headtail(state):
-    yield next(state.input)
+def headtail(input):
+    yield next(input)
     count = 0
     queue = deque()
-    for row in state.input:
+    for row in input:
         count += 1
         if count <= 10:
             yield row
@@ -312,18 +282,18 @@ def headtail(state):
             yield row
 
 @step(name="keep", args=[colset()])
-def keep(state, colset):
-    yield next(state.input)
-    for row in state.input:
+def keep(input, colset):
+    yield next(input)
+    for row in input:
         newrow = []
         for index in colset.until(len(row)):
             newrow.append(row[index])
         yield newrow
 
 @step(name="drop", args=[colset()])
-def drop(state, colset):
-    yield next(state.input)
-    for row in state.input:
+def drop(input, colset):
+    yield next(input)
+    for row in input:
         newrow = []
         for index in range(0, len(row)):
             if index not in colset:
@@ -332,16 +302,16 @@ def drop(state, colset):
             yield newrow
 
 @step(name="to", args=[])
-def split(state):
-    yield next(state.input)
-    for row in state.input:
+def split(input):
+    yield next(input)
+    for row in input:
         yield row
 
 @step(name="neaten", args=[colset()])
-def neaten(state, colset):
-    yield next(state.input)
+def neaten(input, colset):
+    yield next(input)
     rows = []
-    for row in state.input:
+    for row in input:
         rows.append(row)
     maxlen = max(map(len, rows))
     for index in colset.until(maxlen):
@@ -353,21 +323,21 @@ def neaten(state, colset):
         yield row
 
 @step(name="ord", args=[])
-def inorder(state):
-    meta = next(state.input)
+def inorder(input):
+    meta = next(input)
     meta.insert(0, Metadata(int, int, HEADERROW))
     yield meta
     lineno = 1
-    for row in state.input:
+    for row in input:
         row.insert(0, lineno)
         yield row
         lineno += 1
 
 @step(name="percent", args=[colset()])
-def add_percent(state, colset):
-    yield next(state.input)
+def add_percent(input, colset):
+    yield next(input)
     rows = []
-    for row in state.input:
+    for row in input:
         rows.append(row)
     if not result:
         return
@@ -387,10 +357,10 @@ def add_percent(state, colset):
         yield row
 
 @step(name="cum", args=[colset()])
-def add_cum(state, colset):
-    yield next(state.input)
+def add_cum(input, colset):
+    yield next(input)
     rows = []
-    for row in state.input:
+    for row in input:
         rows.append(row)
     if not result:
         return
@@ -406,8 +376,8 @@ def add_cum(state, colset):
         yield row
 
 @step(name="sub", args=[cast(re.compile, "pattern"), cast(str, "replacement"), cast(str, "flags"), colset()])
-def substitute(state, pat, rep, flags, colset):
-    yield next(state.input)
+def substitute(input, pat, rep, flags, colset):
+    yield next(input)
     count = 1
     reflags = 0
     for flag in flags:
@@ -419,16 +389,16 @@ def substitute(state, pat, rep, flags, colset):
             reflags = re.I
         else:
             die("Bad regexp flag: " + flag)
-    for row in state.input:
+    for row in input:
         for index in colset.until(len(row)):
             row[index] = pat.sub(rep, row[index], count)
         yield row
 
 @step(name="left", args=[colset()])
-def pull_left(state, colset):
-    yield next(state.input)
+def pull_left(input, colset):
+    yield next(input)
     # TODO optimize for fixed length
-    for row in state.input:
+    for row in input:
         left, right = [], []
         for index in range(0, len(row)):
             if index in colset:
@@ -440,10 +410,10 @@ def pull_left(state, colset):
         yield left
 
 @step(name="right", args=[colset()])
-def pull_right(state, colset):
-    yield next(state.input)
+def pull_right(input, colset):
+    yield next(input)
     # TODO optimize for fixed length
-    for row in state.input:
+    for row in input:
         left, right = [], []
         for index in range(0, len(row)):
             if index in colset:
@@ -455,9 +425,9 @@ def pull_right(state, colset):
         yield left
 
 @step(name="round", args=[cast(int, "# of decimal places"), colset()])
-def rounding(state, places, colset):
-    yield next(state.input)
-    for row in state.input:
+def rounding(input, places, colset):
+    yield next(input)
+    for row in input:
         for index in colset.until(len(row)):
             value = convert(row[index], locale.atof)
             if type(value) == float:
@@ -465,9 +435,9 @@ def rounding(state, places, colset):
         yield row
 
 @step(name="redate", args=[cast(str, "date format"), colset()])
-def redate(state, format, colset):
+def redate(input, format, colset):
     import datetime as dt, dateutil.parser as dp
-    for row in state.input:
+    for row in input:
         for index in colset.until(len(row)):
             epoch = convert(row[index], int)
             if type(epoch) == int:
@@ -483,7 +453,7 @@ def redate(state, format, colset):
 ####################################################################################################
 
 @step(name="groupby", args=[cast(int, "column number")])
-def groupby(state, column):
+def groupby(input, column):
     """
     Start a new data group; subsequent grouping steps append their information to this, 
     until a non-grouping step is encountered.  Note: this step does not have grouper=True,
@@ -512,25 +482,25 @@ def groupby(state, column):
         for group in enumerate(groups.iteritems()):
             yield group
 
-    return dogroup(GROUPBY, state.input)
+    return dogroup(GROUPBY, input)
 
 @step(name="sum", args=[colset()], grouper=True, consumer=False)
-def dosum(state, colset):
+def dosum(input, colset):
     """Add a SUM aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("SUM", sum, colset))
 
 @step(name="average", args=[colset()], grouper=True, consumer=False)
-def doavg(state, colset):
+def doavg(input, colset):
     """Add an AVERAGE aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("AVERAGE", avg, colset))
 
 @step(name="minimum", args=[colset()], grouper=True, consumer=False)
-def doavg(state, colset):
+def doavg(input, colset):
     """Add a MIN aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("MINIMUM", min, colset))
 
 @step(name="maximum", args=[colset()], grouper=True, consumer=False)
-def doavg(state, colset):
+def doavg(input, colset):
     """Add a MAX aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("MAXIMUM", max, colset))
 
