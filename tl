@@ -10,8 +10,10 @@ import sys
 INTEGER = re.compile("^\d+$")
 RANGE = re.compile("^(\d+)-(\d*)$")
 NSAMPLES = 20
+MAXLINES = 0
 MAXCOLUMNS = None
 HEADERROW = False
+INPUTSEP = None
 OUTPUTSEP = "\t"
 STEPS = {}
 
@@ -27,25 +29,19 @@ class State:
 
     def __init__(self, other=None):
         self.input = other.input if other else None
-        self.limit = other.limit if other else 0
-        self.ifs = other.ifs if other else None
         self.groupby = other.groupby if other else None
 
     def with_input(self, it):
         """Change the input iterator"""
-        return changing(State(self), "input", it)
-
-    def with_limit(self, limit):
-        """Set limit on input lines"""
-        return changing(State(self), "limit", limit)
-
-    def with_ifs(self, fs): 
-        """Change input field separator"""
-        return changing(State(self), "ifs", fs)
+        new = State(self)
+        new.input = it
+        return new
 
     def with_groupby(self, g):
         """Set or unset the current aggregate functions"""
-        return changing(State(self), "groupby", g)
+        new = State(self)
+        new.groupby = g
+        return new
 
 ####################################################################################################
 
@@ -69,7 +65,9 @@ def main(args):
         sys.exit(1)
 
     state = State()
-    state = state.with_limit(1000 if "some" in args else 0)
+
+    global MAXLINES
+    MAXLINES = 1000 if "some" in args else 0
 
     global HEADERROW
     HEADERROW = "hdr" in args or "header" in args
@@ -130,7 +128,7 @@ def main(args):
 
         stepargs = parse(args, step.argspecs)
         if step.consumer and not state.input:
-            state = state.with_input(readrows(state.ifs, MAXCOLUMNS, state.limit))
+            state = state.with_input(readrows(INPUTSEP, MAXCOLUMNS, MAXLINES))
         result = step.fn(state, *stepargs)
         if type(result) == list:
             args.extendleft(reversed(result))
@@ -142,7 +140,7 @@ def main(args):
     # With no args, normalize whitespace
 
     if state.input is None:
-        state = state.with_input(readrows(state.ifs, MAXCOLUMNS, state.limit))
+        state = state.with_input(readrows(INPUTSEP, MAXCOLUMNS, MAXLINES))
         state = state.with_input(split(state))
 
     meta = next(state.input)
@@ -248,22 +246,27 @@ def step(name, args, grouper=False, consumer=True):
 
 @step(name="ifs", args=[cast(str, "input field separator")], consumer=False)
 def set_ifs(state, fs):
-    return state.with_ifs(fs)
+    global INPUTSEP
+    INPUTSEP = fs
+    return state
 
 @step(name="ofs", args=[cast(str, "output field separator")], consumer=False)
 def set_ofs(state, fs):
     global OUTPUTSEP
     OUTPUTSEP = fs
+    return state
 
 @step(name="fs", args=[cast(str, "field separator")], consumer=False)
-def set_ifs(state, fs):
-    global OUTPUTSEP
-    OUTPUTSEP = fs
-    return state.with_ifs(fs)
+def set_fs(state, fs):
+    set_ifs(state, fs)
+    set_ofs(state, fs)
+    return state
 
 @step(name="just", args=[cast(int, "line limit")], consumer=False)
 def set_limit(state, numlines):
-    return state.with_limit(numlines)
+    global MAXLINES
+    MAXLINES = numlines
+    return state
 
 @step(name="maxcolumns", args=[cast(int, "column limit")], consumer=False)
 def set_maxcols(state, limit):
@@ -681,7 +684,6 @@ def first(x): return x[0]
 def second(x): return x[1]
 def isnone(x): return x is None
 def notnone(x): return x is not None
-def changing(obj, attr, val): return setattr(obj, attr, val) or obj
 
 ####################################################################################################
 
