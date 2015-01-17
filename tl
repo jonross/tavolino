@@ -10,6 +10,9 @@ import sys
 INTEGER = re.compile("^\d+$")
 RANGE = re.compile("^(\d+)-(\d*)$")
 NSAMPLES = 20
+MAXCOLUMNS = None
+HEADERROW = False
+OUTPUTSEP = "\t"
 STEPS = {}
 
 Step = namedtuple("Step", "fn name argspecs grouper consumer")
@@ -24,40 +27,25 @@ class State:
 
     def __init__(self, other=None):
         self.input = other.input if other else None
-        self.header = other.header if other else False
-        self.someinput = other.someinput if other else 0
+        self.limit = other.limit if other else 0
         self.ifs = other.ifs if other else None
-        self.ofs = other.ofs if other else "\t"
         self.groupby = other.groupby if other else None
-        self.maxcols = other.maxcols if other else None
 
     def with_input(self, it):
         """Change the input iterator"""
         return changing(State(self), "input", it)
 
-    def with_header(self, flag):
-        """Indicate whether there is a header row"""
-        return changing(State(self), "header", flag)
-
-    def with_someinput(self, limit):
+    def with_limit(self, limit):
         """Set limit on input lines"""
-        return changing(State(self), "someinput", limit)
+        return changing(State(self), "limit", limit)
 
     def with_ifs(self, fs): 
         """Change input field separator"""
         return changing(State(self), "ifs", fs)
 
-    def with_ofs(self, fs): 
-        """Change output field separator"""
-        return changing(State(self), "ofs", fs)
-
     def with_groupby(self, g):
         """Set or unset the current aggregate functions"""
         return changing(State(self), "groupby", g)
-
-    def with_maxcols(self, limit):
-        """Set the maximum # of columns to split into"""
-        return changing(State(self), "maxcols", limit)
 
 ####################################################################################################
 
@@ -81,8 +69,10 @@ def main(args):
         sys.exit(1)
 
     state = State()
-    state = state.with_someinput(1000 if "some" in args else 0)
-    state = state.with_header("hdr" in args or "header" in args)
+    state = state.with_limit(1000 if "some" in args else 0)
+
+    global HEADERROW
+    HEADERROW = "hdr" in args or "header" in args
 
     # Innermost input reader; handles stdin vs file list and applies line limit.
 
@@ -140,7 +130,7 @@ def main(args):
 
         stepargs = parse(args, step.argspecs)
         if step.consumer and not state.input:
-            state = state.with_input(readrows(state.ifs, state.maxcols, state.someinput))
+            state = state.with_input(readrows(state.ifs, MAXCOLUMNS, state.limit))
         result = step.fn(state, *stepargs)
         if type(result) == list:
             args.extendleft(reversed(result))
@@ -152,12 +142,12 @@ def main(args):
     # With no args, normalize whitespace
 
     if state.input is None:
-        state = state.with_input(readrows(state.ifs, state.maxcols, state.someinput))
+        state = state.with_input(readrows(state.ifs, MAXCOLUMNS, state.limit))
         state = state.with_input(split(state))
 
     meta = next(state.input)
     for row in state.input:
-        print state.ofs.join(map(str, row))
+        print OUTPUTSEP.join(map(str, row))
 
 def guess_ifs(lines):
     """Guess the correct input field separator given a sample of lines.
@@ -261,20 +251,24 @@ def set_ifs(state, fs):
     return state.with_ifs(fs)
 
 @step(name="ofs", args=[cast(str, "output field separator")], consumer=False)
-def set_ifs(state, fs):
-    return state.with_ofs(fs)
+def set_ofs(state, fs):
+    global OUTPUTSEP
+    OUTPUTSEP = fs
 
 @step(name="fs", args=[cast(str, "field separator")], consumer=False)
 def set_ifs(state, fs):
-    return state.with_ifs(fs).with_ofs(fs)
+    global OUTPUTSEP
+    OUTPUTSEP = fs
+    return state.with_ifs(fs)
 
 @step(name="just", args=[cast(int, "line limit")], consumer=False)
-def set_someinput(state, numlines):
-    return state.with_someinput(numlines)
+def set_limit(state, numlines):
+    return state.with_limit(numlines)
 
 @step(name="maxcolumns", args=[cast(int, "column limit")], consumer=False)
 def set_maxcols(state, limit):
-    return state.with_maxcols(limit)
+    global MAXCOLUMNS
+    MAXCOLUMNS = limit
 
 ####################################################################################################
 #
@@ -349,7 +343,7 @@ def neaten(state, colset):
     maxlen = max(map(len, rows))
     for index in colset.until(maxlen):
         column = [row[index] for row in rows]
-        newcolumn = reformat(column, header=state.header, justify=True, comma=True)
+        newcolumn = reformat(column, header=HEADERROW, justify=True, comma=True)
         for row, cell in zip(rows, newcolumn):
             row[index] = cell
     for row in rows:
@@ -358,7 +352,7 @@ def neaten(state, colset):
 @step(name="ord", args=[])
 def inorder(state):
     meta = next(state.input)
-    meta.insert(0, Metadata(int, int, state.header))
+    meta.insert(0, Metadata(int, int, HEADERROW))
     yield meta
     lineno = 1
     for row in state.input:
