@@ -23,7 +23,7 @@ UID	PPID	STIME	TTY	TIME	CMD
 0	1	22Oct14	??	0:27.40	/usr/sbin/syslogd
 >>, <<>>)
 
-test(<<drop all but 1>>, <<drop 1,2-3,5->>, ps, <<
+test(<<drop all but 4>>, <<drop 1,2-3,5->>, ps, <<
 C
 0
 0

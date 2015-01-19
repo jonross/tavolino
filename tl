@@ -43,10 +43,8 @@ def main(args):
     if badcount > 0:
         sys.exit(1)
 
-    global MAXLINES
+    global MAXLINES, HEADERROW
     MAXLINES = 1000 if "some" in args else 0
-
-    global HEADERROW
     HEADERROW = "hdr" in args or "header" in args
 
     # Innermost input reader; handles stdin vs file list and applies line limit.
@@ -62,19 +60,18 @@ def main(args):
 
     # Second-level input reader; splits to columns, guesses delimiters.
 
-    def readrows(ifs, maxcols, limit):
-        input = readinput(limit)
+    def readrows(ifs):
+        input = readinput(MAXLINES)
         head = list(islice(input, 0, NSAMPLES))
-        if ifs is None:
-            ifs = guess_ifs(head)
+        ifs = ifs or guess_ifs(head)
         if ifs == " ":
             ifs = None
-        stripper = str.lstrip if ifs == " " else identity
-        if maxcols is not None:
-            splitter = lambda s: stripper(s).split(ifs, maxcols - 1 if maxcols > 0 else 0)
+        stripper = str.lstrip if ifs is None else identity
+        if MAXCOLUMNS is not None:
+            splitter = lambda s: stripper(s).split(ifs, MAXCOLUMNS - 1 if MAXCOLUMNS > 0 else 0)
         else:
             splitter = lambda s: stripper(s).split(ifs)
-        yield []
+        yield [] # no metadata yet
         for line in head:
             yield splitter(line)
         for line in input:
@@ -83,6 +80,8 @@ def main(args):
     input = None
 
     while len(args) > 0:
+
+        # Check for alias expansion in first arg
 
         word = args.popleft()
         words = expandalias(word)
@@ -101,10 +100,11 @@ def main(args):
         #  - return the input unchanged, but have side effects
         #  - wrap the input and return another iterator
         #  - return more args to process
+        #  - return none
 
         stepargs = parse(args, step.argspecs)
         if step.consumer and not input:
-            input = readrows(INPUTSEP, MAXCOLUMNS, MAXLINES)
+            input = readrows(INPUTSEP)
         result = step.fn(input, *stepargs)
         if type(result) == list:
             args.extendleft(reversed(result))
@@ -114,7 +114,7 @@ def main(args):
     # With no args, normalize whitespace
 
     if input is None:
-        input = readrows(INPUTSEP, MAXCOLUMNS, MAXLINES)
+        input = readrows(INPUTSEP)
         input = split(input)
 
     meta = next(input)
