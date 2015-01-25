@@ -1,8 +1,5 @@
 #!/usr/bin/python2.7
 #
-# TODO use
-# from csv
-# to csv
 
 from collections import Counter, defaultdict, deque, namedtuple
 from itertools import islice
@@ -85,7 +82,7 @@ def main(args):
         for line in input:
             yield splitter(line)
 
-    input = None
+    input = readrows()
 
     while len(args) > 0:
 
@@ -118,11 +115,6 @@ def main(args):
             args.extendleft(reversed(result))
         elif result:
             input = result
-
-    # With no args, normalize whitespace
-
-    if input is None:
-        input = readrows()
 
     meta = next(input)
     for row in input:
@@ -343,7 +335,7 @@ def add_percent(input, colset):
     rows = []
     for row in input:
         rows.append(row)
-    if not result:
+    if not rows:
         return
     offset = 0
     for index in range(0, len(rows[0])):
@@ -366,7 +358,7 @@ def add_cum(input, colset):
     rows = []
     for row in input:
         rows.append(row)
-    if not result:
+    if not rows:
         return
     offset = 0
     for index in range(0, len(rows[0])):
