@@ -7,7 +7,7 @@ test(<<bad neat arg>>, <<neat x>>, ps, <<>>, <<
 Bad column expression: x
 >>)
 
-test(<<neat 1>>, <<neat 1 psv>>, <<
+test(<<neat 1>>, <<neat 1 to psv>>, <<
 3 12
 18 7
 140 110

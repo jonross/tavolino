@@ -20,19 +20,3 @@ c
 d
 >>, <<>>)
 
-test(<<limit in one file>>, <<t.* just 1>>, <<>>, <<
-a
->>, <<>>)
-
-test(<<limit in second file>>, <<t.* just 3>>, <<>>, <<
-a
-b
-c
->>, <<>>)
-
-test(<<no-op limit>>, <<t.* just 10>>, <<>>, <<
-a
-b
-c
-d
->>, <<>>)

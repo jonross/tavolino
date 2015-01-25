@@ -1,6 +1,10 @@
 #!/usr/bin/python2.7
+#
+# TODO use
+# from csv
+# to csv
 
-from collections import Counter, deque, namedtuple
+from collections import Counter, defaultdict, deque, namedtuple
 from itertools import islice
 import locale
 from os import path
@@ -18,7 +22,7 @@ OUTPUTSEP = "\t"
 GROUPBY = None
 STEPS = {}
 
-Step = namedtuple("Step", "fn name argspecs grouper consumer")
+Step = namedtuple("Step", "fn name argspecs grouper")
 GroupBy = namedtuple("GroupBy", "column aggregates")
 Aggregate = namedtuple("Aggregate", "name fn colset")
 
@@ -60,13 +64,17 @@ def main(args):
 
     # Second-level input reader; splits to columns, guesses delimiters.
 
-    def readrows(ifs):
+    def readrows():
         input = readinput(MAXLINES)
         head = list(islice(input, 0, NSAMPLES))
-        ifs = ifs or guess_ifs(head)
+        ifs = INPUTSEP or guess_ifs(head)
         if ifs == " ":
+            # split on space means variable whitespace (Python split uses None)
             ifs = None
-        stripper = str.lstrip if ifs is None else identity
+            # therefore ignore leading and trailing spaces
+            stripper = str.strip
+        else:
+            stripper = identity
         if MAXCOLUMNS is not None:
             splitter = lambda s: stripper(s).split(ifs, MAXCOLUMNS - 1 if MAXCOLUMNS > 0 else 0)
         else:
@@ -103,8 +111,8 @@ def main(args):
         #  - return none
 
         stepargs = parse(args, step.argspecs)
-        if step.consumer and not input:
-            input = readrows(INPUTSEP)
+        if not input:
+            input = readrows()
         result = step.fn(input, *stepargs)
         if type(result) == list:
             args.extendleft(reversed(result))
@@ -114,8 +122,7 @@ def main(args):
     # With no args, normalize whitespace
 
     if input is None:
-        input = readrows(INPUTSEP)
-        input = split(input)
+        input = readrows()
 
     meta = next(input)
     for row in input:
@@ -145,7 +152,7 @@ def guess_ifs(lines):
 
 ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
     ("^avg$", ["average"]),
-    ("^csv$", ["fs", ","]),
+    ("^csv$", ["from", "csv", "to", "csv"]),
     ("^(hdr|header)$", []), # handled before arg parsing
     ("^ht$", ["headtail"]),
     ("^neat$", ["neaten"]),
@@ -154,11 +161,11 @@ ALIASES = [ (re.compile(alias),expansion) for alias, expansion in [
     ("^min$", ["minimum"]),
     ("^nice$", ["neat", "1-", "ofs", "  "]),
     ("^per$", ["percent"]),
-    ("^psv$", ["fs", "|"]),
+    ("^psv$", ["from", "psv", "to", "psv"]),
     ("^s[/-_=,]", lambda word: expandsub(word)),
     ("^some$", []), # handled before arg parsing
-    ("^ssv$", ["fs", " "]),
-    ("^tsv$", ["fs", "\t"]),
+    ("^ssv$", ["from", "ssv", "to", "ssv"]),
+    ("^tsv$", ["from", "tsv", "to", "tsv"]),
     ]
 ]
 
@@ -209,36 +216,39 @@ def optional(spec):
 
 ####################################################################################################
 
-def step(name, args, grouper=False, consumer=True):
+def step(name, args, grouper=False):
     def wrap(f):
-        step = Step(f, name, args, grouper, consumer)
+        step = Step(f, name, args, grouper)
         STEPS[name] = step
         return f
     return wrap
 
 # These steps change processing but don't consume input
 
-@step(name="ifs", args=[cast(str, "input field separator")], consumer=False)
+@step(name="ifs", args=[cast(str, "input field separator")])
 def set_ifs(input, fs):
     global INPUTSEP
     INPUTSEP = fs
 
-@step(name="ofs", args=[cast(str, "output field separator")], consumer=False)
+@step(name="ofs", args=[cast(str, "output field separator")])
 def set_ofs(input, fs):
     global OUTPUTSEP
     OUTPUTSEP = fs
 
-@step(name="fs", args=[cast(str, "field separator")], consumer=False)
+@step(name="fs", args=[cast(str, "field separator")])
 def set_fs(input, fs):
     set_ifs(input, fs)
     set_ofs(input, fs)
 
-@step(name="just", args=[cast(int, "line limit")], consumer=False)
-def set_limit(input, numlines):
-    global MAXLINES
-    MAXLINES = numlines
+@step(name="from", args=[cast(str, "output field separator")])
+def set_from(input, fs):
+    set_ifs(input, parse_fs(fs))
 
-@step(name="maxcolumns", args=[cast(int, "column limit")], consumer=False)
+@step(name="to", args=[cast(str, "output field separator")])
+def set_to(input, fs):
+    set_ofs(input, parse_fs(fs))
+
+@step(name="maxcolumns", args=[cast(int, "column limit")])
 def set_maxcols(input, limit):
     global MAXCOLUMNS
     MAXCOLUMNS = limit
@@ -300,12 +310,6 @@ def drop(input, colset):
                 newrow.append(row[index])
         if len(newrow) > 0:
             yield newrow
-
-@step(name="to", args=[])
-def split(input):
-    yield next(input)
-    for row in input:
-        yield row
 
 @step(name="neaten", args=[colset()])
 def neaten(input, colset):
@@ -484,22 +488,22 @@ def groupby(input, column):
 
     return dogroup(GROUPBY, input)
 
-@step(name="sum", args=[colset()], grouper=True, consumer=False)
+@step(name="sum", args=[colset()], grouper=True)
 def dosum(input, colset):
     """Add a SUM aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("SUM", sum, colset))
 
-@step(name="average", args=[colset()], grouper=True, consumer=False)
+@step(name="average", args=[colset()], grouper=True)
 def doavg(input, colset):
     """Add an AVERAGE aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("AVERAGE", avg, colset))
 
-@step(name="minimum", args=[colset()], grouper=True, consumer=False)
+@step(name="minimum", args=[colset()], grouper=True)
 def doavg(input, colset):
     """Add a MIN aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("MINIMUM", min, colset))
 
-@step(name="maximum", args=[colset()], grouper=True, consumer=False)
+@step(name="maximum", args=[colset()], grouper=True)
 def doavg(input, colset):
     """Add a MAX aggregate to the established GroupBy"""
     GROUPBY.aggregates.append(Aggregate("MAXIMUM", max, colset))
@@ -654,6 +658,12 @@ def first(x): return x[0]
 def second(x): return x[1]
 def isnone(x): return x is None
 def notnone(x): return x is not None
+
+def parse_fs(fs):
+    map = {"csv": ",", "psv": "|", "ssv": " ", "tsv": "\t"}
+    if fs not in map:
+        die("Argument to from/to must be one of csv,psv,ssv,tsv")
+    return map[fs]
 
 ####################################################################################################
 
