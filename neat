@@ -1,0 +1,30 @@
+# vim:ft=python
+
+import sys
+import tavolino as tl
+
+tl.getargs(tl.noargs)
+
+input = tl.getrows()
+rows = list(input)
+sample = tl.transpose(rows[:20])
+types = [None] * len(sample)
+
+for i in range(len(sample)):
+    types[i], convert = tl.guess_type(sample[i])
+    format = tl.make_format(types[i], True)
+    if types[i] in [int, float]:
+        for row in rows:
+            row[i] = format(convert(row[i]))
+
+for i in range(len(sample)):
+    maxwidth = max(len(row[i]) for row in rows)
+    pad = str.rjust if types[i] in [int, float] else str.ljust
+    for row in rows:
+        row[i] = pad(row[i], maxwidth)
+
+for row in rows:
+    print "  ".join(row)
+
+
+

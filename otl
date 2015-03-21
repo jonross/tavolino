@@ -1,0 +1,74 @@
+Step = namedtuple("Step", "fn name argspecs grouper")
+GroupBy = namedtuple("GroupBy", "column aggregates")
+Aggregate = namedtuple("Aggregate", "name fn colset")
+
+@step(name="redate", args=[cast(str, "date format"), colset()])
+def redate(input, format, colset):
+    import datetime as dt, dateutil.parser as dp
+    for row in input:
+        for index in colset.until(len(row)):
+            epoch = convert(row[index], int)
+            if type(epoch) == int:
+                date = dt.datetime.fromtimestamp(epoch)
+            else:
+                try:
+                    date = dp.parse(row[index])
+                except ValueError as e:
+                    continue
+            row[index] = date.strftime(format)
+        yield row
+
+####################################################################################################
+
+@step(name="groupby", args=[cast(int, "column number")])
+def groupby(input, column):
+    """
+    Start a new data group; subsequent grouping steps append their information to this, 
+    until a non-grouping step is encountered.  Note: this step does not have grouper=True,
+    because if there is an active group, we should close it and start a new one.
+    """
+    global GROUPBY
+    GROUPBY = GroupBy(column - 1, [])
+    def dogroup(groupby, input):
+        meta = next(input)
+        yield meta
+        groups = defaultdict(lambda: [])
+        if groupby.column == 0:
+            groups[0] = map(second, input)
+        else:
+            for row in input:
+                groups[row[groupby.column]].append(row)
+        for key in groups:
+            used = set(groupby.column)
+            columns = [m.convert(c) for m, c in zip(meta, transpose(groups[key]))]
+            results = [None] * meta.size
+            for agg in group.aggregates:
+                for index in agg.colset:
+                    used.add(index)
+                    results[index] = agg.fn(columns[index])
+            groups[key] = [results[index] for index in sorted(used)]
+        for group in enumerate(groups.iteritems()):
+            yield group
+
+    return dogroup(GROUPBY, input)
+
+@step(name="sum", args=[colset()], grouper=True)
+def dosum(input, colset):
+    """Add a SUM aggregate to the established GroupBy"""
+    GROUPBY.aggregates.append(Aggregate("SUM", sum, colset))
+
+@step(name="average", args=[colset()], grouper=True)
+def doavg(input, colset):
+    """Add an AVERAGE aggregate to the established GroupBy"""
+    GROUPBY.aggregates.append(Aggregate("AVERAGE", avg, colset))
+
+@step(name="minimum", args=[colset()], grouper=True)
+def doavg(input, colset):
+    """Add a MIN aggregate to the established GroupBy"""
+    GROUPBY.aggregates.append(Aggregate("MINIMUM", min, colset))
+
+@step(name="maximum", args=[colset()], grouper=True)
+def doavg(input, colset):
+    """Add a MAX aggregate to the established GroupBy"""
+    GROUPBY.aggregates.append(Aggregate("MAXIMUM", max, colset))
+

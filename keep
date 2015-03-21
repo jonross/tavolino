@@ -1,0 +1,13 @@
+# vim:ft=python
+
+import sys
+import tavolino as tl
+
+columns, rest = tl.getargs(tl.columns(True))
+
+for row in tl.getrows():
+    newrow = []
+    for index in tl.indices(row, columns, rest):
+        newrow.append(row[index])
+    tl.output(newrow)
+

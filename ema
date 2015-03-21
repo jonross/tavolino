@@ -1,0 +1,24 @@
+# vim:ft=python
+
+import sys
+import tavolino as tl
+
+columns, rest = tl.getargs(tl.columns())
+
+rows = list(tl.getrows())
+if not rows:
+    sys.exit(0)
+
+offset = 0
+for index in range(0, len(rows[0])):
+    if index in columns or (rest is not None and index >= rest):
+        last = None
+        for row in rows:
+            value = row[index] if last is None else ((k - 1) * last + row[index]) / k
+            row.insert(index + offset + 1, value)
+            last = value
+        offset += 1
+
+for row in rows:
+    tl.output(row)
+

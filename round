@@ -1,0 +1,17 @@
+# vim:ft=python
+
+import locale
+import sys
+import tavolino as tl
+
+places, (columns, rest) = tl.getargs(tl.intarg("# of places"), tl.columns())
+
+for row in tl.getrows():
+    offset = 0
+    for index in range(0, len(row)):
+        if index in columns or (rest is not None and index >= rest):
+            value = tl.convert(row[index], locale.atof)
+            if type(value) == float:
+                row[index] = round(value, places)
+    tl.output(row)
+

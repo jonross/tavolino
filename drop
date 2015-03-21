@@ -1,0 +1,16 @@
+# vim:ft=python
+
+import sys
+import tavolino as tl
+
+columns, rest = tl.getargs(tl.columns())
+
+for row in tl.getrows():
+    newrow = []
+    for index in range(0, len(row)):
+        if index in columns or (rest is not None and index >= rest):
+            continue
+        newrow.append(row[index])
+    if len(newrow) > 0:
+        tl.output(newrow)
+

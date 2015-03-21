@@ -1,0 +1,13 @@
+# vim:ft=python
+
+import sys
+import tavolino as tl
+
+tl.getargs(tl.noargs)
+
+lineno = 1
+for row in tl.getrows():
+    row.insert(0, lineno)
+    tl.output(row)
+    lineno += 1
+

@@ -1,0 +1,18 @@
+import re
+import sys
+import tavolino as tl
+
+expr = tl.getargs(tl.anyarg("cN=EXPRESSION"))
+
+if not re.match("^c\d+=.+", expr):
+    tl.die("Usaege: set cN=EXPRESSION")
+
+setbody = re.sub("c(\d+)", lambda m: "row[%d]" % (int(m.group(1))-1,), expr)
+exec("def setter(row): " + setbody + "\n\n")
+
+for row in tl.getrows():
+    setter(row)
+    tl.output(row)
+
+# vim:ft=python
+
