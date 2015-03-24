@@ -50,6 +50,21 @@ def intarg(description):
 
     return handle
 
+def rxarg(description, regex):
+
+    """Return an arg handler that tries to match an argument against
+    the supplied regular expression.
+    """
+
+    def handle(args):
+        if not args:
+            die("Missing argument, expected " + description)
+        if not re.match(regex, args[0]):
+            die("Expected " + description + " but got " + args[0])
+        return args[0], args[1:]
+
+    return handle
+
 def noargs(args):
 
     if args:

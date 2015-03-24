@@ -87,7 +87,7 @@ step() {
 
         # Handle one-argument steps
 
-        cum.*|delta.*|drop.*|dup.*|keep.*|per.*|set.*)
+        add.*|cum.*|delta.*|drop.*|dup.*|keep.*|per.*|set.*)
             script=$(unalias $1)
             arg=$2
             shift; shift

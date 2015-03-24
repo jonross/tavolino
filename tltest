@@ -60,6 +60,8 @@ m4_include(<<tests/delta.m4>>)
 m4_include(<<tests/dup.m4>>)
 m4_include(<<tests/sub.m4>>)
 m4_include(<<tests/round.m4>>)
+m4_include(<<tests/set.m4>>)
+m4_include(<<tests/add.m4>>)
 
 if [[ $nfailures > 0 ]]; then
     exit 1

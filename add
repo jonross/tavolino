@@ -2,7 +2,7 @@ import re
 import sys
 import tavolino as tl
 
-expr = tl.getargs(tl.rxarg("cN=EXPRESSION", "^c\d+=.+"))
+expr = tl.getargs(tl.anyarg("EXPRESSION"))
 
 maxused = -1
 def replacer(m):
@@ -11,12 +11,12 @@ def replacer(m):
     maxused = max(maxused, index)
     return "row[%d]" % index
 
-setbody = re.sub("c(\d+)", replacer, expr)
-exec("def setter(row): " + setbody + "\n\n")
+body = re.sub("c(\d+)", replacer, expr)
+exec("def calc(row): return " + body + "\n\n")
 
 for row in tl.getrows():
     if maxused < len(row):
-        setter(row)
+        row.append(calc(row))
     tl.output(row)
 
 # vim:ft=python
