@@ -96,7 +96,7 @@ step() {
 
         # Handle two-argument steps
 
-        round.*)
+        ema.*|round.*)
             script=$(unalias $1)
             arg1=$2
             arg2=$3
