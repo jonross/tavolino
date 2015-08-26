@@ -1,8 +1,0 @@
-# vim: ft=python
-
-import sys
-import tavolino as tl
-
-for row in tl.getrows():
-    tl.output(row, tl.OFS)
-
