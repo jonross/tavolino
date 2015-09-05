@@ -35,18 +35,18 @@ def test(name, args, input, expected_stdout, expected_stderr):
         print stderr,
         nerrors += 1
 
-execfile("newtests/inputs.py")
-execfile("newtests/sep.py")
+execfile("tests/inputs.py")
+execfile("tests/sep.py")
 
-execfile("newtests/drop.py")
-execfile("newtests/keep.py")
-execfile("newtests/format.py")
-execfile("newtests/cum.py")
-execfile("newtests/dup.py")
-execfile("newtests/delta.py")
-execfile("newtests/per.py")
-execfile("newtests/ema.py")
-execfile("newtests/round.py")
+execfile("tests/drop.py")
+execfile("tests/keep.py")
+execfile("tests/format.py")
+execfile("tests/cum.py")
+execfile("tests/dup.py")
+execfile("tests/delta.py")
+execfile("tests/per.py")
+execfile("tests/ema.py")
+execfile("tests/round.py")
 
 sys.exit(1 if nerrors > 0 else 0)
 

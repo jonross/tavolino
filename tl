@@ -163,8 +163,7 @@ def parse_args(ts, args):
             add_step(calc_round, ("# of places", silent(int)), ("column expression", ColumnList.from_string))
 
         elif arg == "set":
-            add_step(set_column, ("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match),
-                    ("column expression", ColumnList.from_string))
+            add_step(set_column, ("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match))
 
         elif arg == "wiki":
             add_step(wikify_output)
@@ -634,7 +633,7 @@ def reformat_date(ts, dateformat, colist):
     for row in rows:
         ts.write(row)
 
-def set_column(ts, cmatch, colist):
+def set_column(ts, cmatch):
 
     """
     Set the value of a column to the result of an expression, where e.g. cN = row[N-1].
@@ -642,14 +641,14 @@ def set_column(ts, cmatch, colist):
     """
 
     rows = list(ts.rows)
-
-    target = int(cmatch.group(1))
+    target = int(cmatch.group(1)) - 1
     expr = cmatch.group(2)
     setbody = re.sub("c(\d+)", lambda m: "row[%d]" % int(m.group(1))-1, expr)
-    # TODO setter = eval("lambda
+    setter = eval("lambda row: " + setbody)
 
-    rows = list(ts.rows)
-    indices = colist.indices(len(row[0]))
+    for row in rows:
+        row[target] = setter(row)
+        ts.write(row)
 
 def wikify_output(ts):
 
@@ -667,6 +666,7 @@ def wikify_output(ts):
         typ, converter = guess_type(column)
         formatter = make_format(typ, True)
         if typ in [int, float]:
+            # provide leading space to right-justify numbers
             for row in rows:
                 row[index] = " " + formatter(converter(row[index]))
 
