@@ -7,7 +7,9 @@
 
 from collections import deque
 from datetime import date, datetime, time
+from funcy import compose, dec, icat, imap
 import locale
+import operator as op
 import re
 import sys
 
@@ -41,22 +43,14 @@ SEPARATOR_NAMES = {
 
 def main(args):
 
-    """
-    Main driver:
-     * Call argument parser
-     * Figure out how to split and rejoin lines
-     * Split the input
-     * Normalize row width
-     * Run each step
-     * Rejoin and output
-    """
-
     ts = TState()
     steps = parse_args(ts, args)
 
     lines = [line.strip() for line in sys.stdin]
     if len(lines) == 0:
         sys.exit(0)
+
+    # Determine how to split lines into rows
 
     if ts.ifs == " ":
         splitter = WHITESPACE.split
@@ -68,8 +62,8 @@ def main(args):
         if ts.ofs is None:
             ts.ofs = ofs
 
-    ts.rows = [splitter(line) for line in lines]
-    widest = max(len(row) for row in ts.rows)
+    rows = [splitter(line) for line in lines]
+    widest = max(len(row) for row in rows)
 
     # Widen rows to max width
 
@@ -79,17 +73,19 @@ def main(args):
             return row + [""] * (widest - len(row))
         return row
 
-    ts.rows = map(normalize, ts.rows)
+    rows = map(normalize, rows)
 
-    # For each step make ts.rows the output of the previous step
+    # Transpose to columns & run steps,
+    # then back to rows for output.
+
+    ts.columns = transpose(rows)
+    ts.width = widest
 
     for step in steps:
         step(ts)
-        ts.rows = ts.output
-        ts.output = []
 
-    if not ts.suppress:
-        for row in ts.rows:
+    if ts.columns and not ts.suppress:
+        for row in transpose(ts.columns):
             print ts.ofs.join(map(str, row))
 
 def parse_args(ts, args):
@@ -129,7 +125,7 @@ def parse_args(ts, args):
             args.appendleft("keep")
 
         elif arg == "cum":
-            add_step(calc_sum, ("column expression", ColumnList.from_string))
+            add_step(calc_cum, ("column expression", ColumnList.from_string))
 
         elif arg == "delta":
             add_step(calc_delta, ("column expression", ColumnList.from_string))
@@ -207,17 +203,23 @@ class TState:
         # Output field separator
         self.ofs = None
 
-        # Input lines, split into fields
-        self.rows = []
-
-        # Output rows for each step; becomes self.rows for the next step
-        self.output = []
+        # Columns generated from input lines
+        self.columns = []
 
         # Suppress final output (if a step has done custom output)
         self.suppress = False
 
-    def write(self, row):
-        self.output.append(row)
+    def insert_after(self, newcols, indices):
+
+        """
+        Insert each column in newcols after its corresponding index in indices.
+        indices must be sorted.
+        """
+
+        offset = 1
+        for newcol, index in zip(newcols, indices):
+            self.columns.insert(index + offset, newcol)
+            offset += 1
 
 class ColumnList:
 
@@ -271,11 +273,17 @@ class ColumnList:
         row width.  For the above exaple this would be [0, 1, 2, 4, 7, 8, ...]
         """
 
-        ix = []
-        for r in self.ranges:
-            for i in range(r[0], min(r[1], width) + 1):
-                ix.append(i - 1)
-        return ix
+        def zerobase(r, width):
+            return range(r[0], min(r[1], width) + 1)
+        return map(dec, icat([zerobase(r, width) for r in self.ranges]))
+
+    def unique_indices(self, width):
+
+        """
+        Same as indices() but sorted and unique.
+        """
+
+        return sorted(set(self.indices(width)))
 
     def flags(self, width):
 
@@ -284,11 +292,10 @@ class ColumnList:
         For the above example this would be [T, T, T, F, T, F, F, T, T, ...]
         """
 
-        ix = [False] * width
-        for r in self.ranges:
-            for i in range(r[0], min(r[1], width) + 1):
-                ix[i - 1] = True
-        return ix
+        result = [False] * width
+        for i in self.indices(width):
+            result[i] = True
+        return result
 
 ####################################################################################################
 
@@ -488,26 +495,16 @@ def calc_round(ts, places, colist):
     for row in rows:
         ts.write(row)
 
-def calc_sum(ts, colist):
+def calc_cum(ts, colist):
 
     """
     Insert a running sum for each tagged column in colist.
     """
 
-    rows = list(ts.rows)
-    flags = colist.flags(len(rows[0]))
-
-    offset = 0
-    for index in range(0, len(rows[0])):
-        if flags[index]:
-            cum = 0
-            for row in rows:
-                cum += convert(row[index + offset])
-                row.insert(index + offset + 1, cum)
-            offset += 1
-
-    for row in rows:
-        ts.write(row)
+    indices = colist.unique_indices(ts.width)
+    columns = [map(convert, ts.columns[i]) for i in indices]
+    cums = [remap(op.add, column, 0) for column in columns]
+    ts.insert_after(cums, indices)
 
 def duplicate_columns(ts, colist):
 
@@ -515,55 +512,28 @@ def duplicate_columns(ts, colist):
     Insert a duplicate of the tagged columns in colist.
     """
 
-    rows = list(ts.rows)
-    flags = colist.flags(len(rows[0]))
-
-    offset = 0
-    for index in range(0, len(rows[0])):
-        if flags[index]:
-            for row in rows:
-                row.insert(index + offset + 1, row[index + offset])
-            offset += 1
-
-    for row in rows:
-        ts.write(row)
+    indices = colist.unique_indices(ts.width)
+    dups = [ts.columns[i][:] for i in indices]
+    ts.insert_after(dups, indices)
 
 def drop_columns(ts, colist):
 
     """
-    For each line of input, drop the columns where flags[index] is True.
-    Lines with all columns removed are deleted; they don't generate an empty line.
+    Remove the designated columns.
     """
 
-    rows = list(ts.rows)
-    flags = colist.flags(len(rows[0]))
-
-    for row in ts.rows:
-        newrow = []
-        for index, item in enumerate(row):
-            if not flags[index]:
-                newrow.append(item)
-        if len(newrow) > 0:
-            ts.write(newrow)
+    flags = colist.flags(ts.width)
+    ts.columns = [column for i, column in enumerate(ts.columns) if not flags[i]]
 
 def keep_columns(ts, colist):
 
     """
-    For each line of input, keep the columns where flags[index] is True.
-    Lines with all columns removed are deleted; they don't generate an empty line.
-    Note, this is not simply the opposite of drop_columns, since the order may be changed
-    e.g.: keep 3,2,1
+    Remove all but the designated columns.  Note, this is not simply the opposite of 
+    drop_columns, since the order may be changed e.g.: keep 3,2,1
     """
 
-    rows = list(ts.rows)
-    indices = colist.indices(len(rows[0]))
-
-    for row in rows:
-        newrow = []
-        for index in colist.indices(len(row)):
-            newrow.append(row[index])
-        if len(newrow) > 0:
-            ts.write(newrow)
+    indices = colist.indices(ts.width)
+    ts.columns = [ts.columns[i][:] for i in indices]
 
 def neaten_output(ts):
 
@@ -573,29 +543,19 @@ def neaten_output(ts):
     This can only be the final step in the list.
     """
 
-    rows = list(ts.rows)
-    columns = transpose(rows[:20])
+    def neaten(column):
+        kind, converter = guess_type(column[:20])
+        if kind in [int, float]:
+            formatter = make_format(kind, True)
+            column = map(compose(formatter, converter), column)
+            spacer = str.rjust
+        else:
+            spacer = str.ljust
+        maxwidth = max(map(len, column))
+        return [spacer(item, maxwidth) for item in column]
+
     ts.suppress = True
-    types = []
-
-    # Guess column types and format the data.
-    # Then pad each column to match the widest value in that column.
-
-    for index, column in enumerate(columns):
-
-        typ, converter = guess_type(column)
-        types.append(typ)
-        formatter = make_format(typ, True)
-        if typ in [int, float]:
-            for row in rows:
-                row[index] = formatter(converter(row[index]))
-
-        span = max(len(row[index]) for row in rows)
-        spacer = str.rjust if types[index] in [int, float] else str.ljust
-        for row in rows:
-            row[index] = spacer(row[index], span)
-
-    for row in rows:
+    for row in transpose(map(neaten, ts.columns)):
         print "  ".join(row)
 
 def prepend_ordinal(ts):
@@ -658,22 +618,26 @@ def wikify_output(ts):
     This can only be the final step in the list.
     """
 
-    rows = list(ts.rows)
-    columns = transpose(rows[:20])
-    ts.suppress = True
-
-    for index, column in enumerate(columns):
-        typ, converter = guess_type(column)
-        formatter = make_format(typ, True)
-        if typ in [int, float]:
+    def neaten(column):
+        kind, converter = guess_type(column[:20])
+        if kind in [int, float]:
+            formatter = make_format(kind, True)
             # provide leading space to right-justify numbers
-            for row in rows:
-                row[index] = " " + formatter(converter(row[index]))
+            return [" " + formatter(converter(item)) for item in column]
+        return column
 
-    for row in rows:
+    ts.suppress = True
+    for row in transpose(map(neaten, ts.columns)):
         print "| " + " | ".join(row) + " |"
 
 ####################################################################################################
+
+def remap(f, list, value=None):
+    v = [list[0]] if value is None else [value]
+    def f2(x):
+        v[0] = f(v[0], x)
+        return v[0]
+    return map(f2, list)
 
 def die(message):
     warn(message)

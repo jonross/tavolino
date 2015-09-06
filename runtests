@@ -22,14 +22,14 @@ def test(name, args, input, expected_stdout, expected_stderr):
     expected_stderr = expected_stderr.lstrip()
 
     if stdout != expected_stdout:
-        print "Wrong output for 'nt " + args + "' (" + name + ") expected:"
+        print "Wrong output for 'tl " + args + "' (" + name + ") expected:"
         print expected_stdout,
         print "But got:"
         print stdout,
         nerrors += 1
 
     if stderr != expected_stderr:
-        print "Wrong errors for 'nt " + args + "' (" + name + ") expected:"
+        print "Wrong errors for 'tl " + args + "' (" + name + ") expected:"
         print expected_stderr,
         print "But got:"
         print stderr,
@@ -43,10 +43,10 @@ execfile("tests/keep.py")
 execfile("tests/format.py")
 execfile("tests/cum.py")
 execfile("tests/dup.py")
-execfile("tests/delta.py")
-execfile("tests/per.py")
-execfile("tests/ema.py")
-execfile("tests/round.py")
+# execfile("tests/delta.py")
+# execfile("tests/per.py")
+# execfile("tests/ema.py")
+# execfile("tests/round.py")
 
 sys.exit(1 if nerrors > 0 else 0)
 
