@@ -7,7 +7,7 @@
 
 from collections import deque
 from datetime import date, datetime, time
-from funcy import compose, dec, icat, imap
+from funcy import compose, dec, icat, imap, with_prev
 import locale
 import operator as op
 import re
@@ -407,22 +407,10 @@ def calc_delta(ts, colist):
     Insert a running delta for each tagged column in colist.
     """
 
-    rows = list(ts.rows)
-    flags = colist.flags(len(rows[0]))
-
-    offset = 0
-    for index in range(0, len(rows[0])):
-        if flags[index]:
-            last = None
-            for row in rows:
-                value = convert(row[index + offset])
-                delta = 0 if last is None else value - last
-                last = value
-                row.insert(index + offset + 1, delta)
-            offset += 1
-
-    for row in rows:
-        ts.write(row)
+    indices = colist.unique_indices(ts.width)
+    columns = [map(convert, ts.columns[i]) for i in indices]
+    deltas = [[a - b for a, b in with_prev(column, column[0])] for column in columns]
+    ts.insert_after(deltas, indices)
 
 def calc_ema(ts, k, colist):
 
@@ -632,16 +620,16 @@ def wikify_output(ts):
 
 ####################################################################################################
 
+def die(message):
+    warn(message)
+    sys.exit(1)
+
 def remap(f, list, value=None):
     v = [list[0]] if value is None else [value]
     def f2(x):
         v[0] = f(v[0], x)
         return v[0]
     return map(f2, list)
-
-def die(message):
-    warn(message)
-    sys.exit(1)
 
 def silent(f):
     def wrapped(*args):
