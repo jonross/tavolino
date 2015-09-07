@@ -445,24 +445,17 @@ def calc_percent(ts, colist):
     for that column.
     """
 
-    rows = list(ts.rows)
-    flags = colist.flags(len(rows[0]))
+    def calc(column):
+        column = map(compose(locale.atof, strip_commas), column)
+        total = sum(column)
+        if total > 0:
+            return [item / total * 100 for item in column]
+        else:
+            return [0 for item in column]
 
-    offset = 0
-    for index in range(0, len(rows[0])):
-        if flags[index]:
-            values = [float(row[index + offset]) for row in rows]
-            total = sum(values)
-            if total > 0:
-                percents = [value / total * 100 for value in values]
-            else:
-                percents = [0 for value in values]
-            for row, percent in zip(rows, percents):
-                row.insert(index + offset + 1, percent)
-            offset += 1
-
-    for row in rows:
-        ts.write(row)
+    indices = colist.unique_indices(ts.width)
+    percents = [calc(ts.columns[i]) for i in indices]
+    ts.insert_after(percents, indices)
 
 def calc_round(ts, places, colist):
 
