@@ -45,7 +45,7 @@ execfile("tests/cum.py")
 execfile("tests/dup.py")
 execfile("tests/delta.py")
 execfile("tests/per.py")
-# execfile("tests/ema.py")
+execfile("tests/ema.py")
 # execfile("tests/round.py")
 
 sys.exit(1 if nerrors > 0 else 0)

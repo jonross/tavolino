@@ -418,25 +418,13 @@ def calc_ema(ts, k, colist):
     Insert a running exponential moving average for each tagged column in colist.
     """
 
-    rows = list(ts.rows)
-    flags = colist.flags(len(rows[0]))
+    def ema(prev, curr):
+        return ((k - 1) * prev + curr) * 1.0 / k
 
-    offset = 0
-    for index in range(0, len(rows[0])):
-        if flags[index]:
-            last = None
-            for row in rows:
-                cell = convert(row[index], locale.atof)
-                if type(cell) == float:
-                    value = cell if last is None else ((k - 1) * last + cell) / k
-                else:
-                    value = cell if last is None else last
-                row.insert(index + offset + 1, value)
-                last = value
-            offset += 1
-
-    for row in rows:
-        ts.write(row)
+    indices = colist.unique_indices(ts.width)
+    columns = [map(convert, ts.columns[i]) for i in indices]
+    emas = [remap(ema, column) for column in columns]
+    ts.insert_after(emas, indices)
 
 def calc_percent(ts, colist):
 
@@ -446,15 +434,15 @@ def calc_percent(ts, colist):
     """
 
     def calc(column):
-        column = map(compose(locale.atof, strip_commas), column)
         total = sum(column)
         if total > 0:
-            return [item / total * 100 for item in column]
+            return [item * 1.0 / total * 100 for item in column]
         else:
             return [0 for item in column]
 
     indices = colist.unique_indices(ts.width)
-    percents = [calc(ts.columns[i]) for i in indices]
+    columns = [map(convert, ts.columns[i]) for i in indices]
+    percents = map(calc, columns)
     ts.insert_after(percents, indices)
 
 def calc_round(ts, places, colist):
