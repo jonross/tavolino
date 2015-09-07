@@ -221,6 +221,25 @@ class TState:
             self.columns.insert(index + offset, newcol)
             offset += 1
 
+    def calc_columns(self, colist, mapper):
+
+        """
+        General-purpose support for steps that insert columns generated
+        from other numeric columns.
+        """
+
+        indices = colist.unique_indices(self.width)
+        targets = [map(convert, self.columns[i]) for i in indices]
+        newcols = [mapper(column) for column in targets]
+        self.insert_after(newcols, indices)
+
+    def map_columns(self, colist, mapper):
+
+        """Like calc_columns but overwrites the target columns."""
+
+        for i in colist.unique_indices(self.width):
+            self.columns[i] = mapper(map(convert, self.columns[i]))
+
 class ColumnList:
 
     """
@@ -407,10 +426,10 @@ def calc_delta(ts, colist):
     Insert a running delta for each tagged column in colist.
     """
 
-    indices = colist.unique_indices(ts.width)
-    columns = [map(convert, ts.columns[i]) for i in indices]
-    deltas = [[a - b for a, b in with_prev(column, column[0])] for column in columns]
-    ts.insert_after(deltas, indices)
+    def delta(column):
+        return [a - b for a, b in with_prev(column, column[0])]
+
+    ts.calc_columns(colist, delta)
 
 def calc_ema(ts, k, colist):
 
@@ -421,10 +440,7 @@ def calc_ema(ts, k, colist):
     def ema(prev, curr):
         return ((k - 1) * prev + curr) * 1.0 / k
 
-    indices = colist.unique_indices(ts.width)
-    columns = [map(convert, ts.columns[i]) for i in indices]
-    emas = [remap(ema, column) for column in columns]
-    ts.insert_after(emas, indices)
+    ts.calc_columns(colist, lambda column: remap(ema, column))
 
 def calc_percent(ts, colist):
 
@@ -433,17 +449,14 @@ def calc_percent(ts, colist):
     for that column.
     """
 
-    def calc(column):
+    def percent(column):
         total = sum(column)
         if total > 0:
             return [item * 1.0 / total * 100 for item in column]
         else:
             return [0 for item in column]
 
-    indices = colist.unique_indices(ts.width)
-    columns = [map(convert, ts.columns[i]) for i in indices]
-    percents = map(calc, columns)
-    ts.insert_after(percents, indices)
+    ts.calc_columns(colist, percent)
 
 def calc_round(ts, places, colist):
 
@@ -451,18 +464,10 @@ def calc_round(ts, places, colist):
     For each column in colist, round its values to N places.
     """
 
-    rows = list(ts.rows)
-    flags = colist.flags(len(rows[0]))
+    def doround(column):
+        return map(lambda value: round(float(value), places), column)
 
-    for index in range(0, len(rows[0])):
-        if flags[index]:
-            for row in rows:
-                value = convert(row[index], locale.atof)
-                if type(value) == float:
-                    row[index] = round(value, places)
-
-    for row in rows:
-        ts.write(row)
+    ts.map_columns(colist, doround)
 
 def calc_cum(ts, colist):
 
@@ -470,10 +475,7 @@ def calc_cum(ts, colist):
     Insert a running sum for each tagged column in colist.
     """
 
-    indices = colist.unique_indices(ts.width)
-    columns = [map(convert, ts.columns[i]) for i in indices]
-    cums = [remap(op.add, column, 0) for column in columns]
-    ts.insert_after(cums, indices)
+    ts.calc_columns(colist, lambda column: remap(op.add, column, 0))
 
 def duplicate_columns(ts, colist):
 
@@ -481,9 +483,7 @@ def duplicate_columns(ts, colist):
     Insert a duplicate of the tagged columns in colist.
     """
 
-    indices = colist.unique_indices(ts.width)
-    dups = [ts.columns[i][:] for i in indices]
-    ts.insert_after(dups, indices)
+    ts.calc_columns(colist, lambda column: column[:])
 
 def drop_columns(ts, colist):
 
