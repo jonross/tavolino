@@ -1,0 +1,23 @@
+
+with no options, input csv should output csv
+    this requires a metadata row
+
+group by: sum, min, max, avg; see otl
+pivot
+add basic plots
+
+convert tests to use nose
+
+more sub tests
+
+fix jsonx
+fix pivot
+
+make float formatting consistent, e.g. in delta.m4 test
+
+handle header rows
+header-aware head, tail, grep
+
+egg distro
+
+vim:ft=markdown
