@@ -7,7 +7,7 @@
 
 from collections import deque
 from datetime import date, datetime, time
-from funcy import compose, dec, icat, imap, with_prev
+from funcy import compose, count, dec, icat, imap, take, with_prev
 import locale
 import operator as op
 import re
@@ -209,14 +209,14 @@ class TState:
         # Suppress final output (if a step has done custom output)
         self.suppress = False
 
-    def insert_after(self, newcols, indices):
+    def insert_columns(self, newcols, indices, after=True):
 
         """
-        Insert each column in newcols after its corresponding index in indices.
+        Insert each column in newcols before / after its corresponding index in indices.
         indices must be sorted.
         """
 
-        offset = 1
+        offset = 1 if after else 0
         for newcol, index in zip(newcols, indices):
             self.columns.insert(index + offset, newcol)
             offset += 1
@@ -231,7 +231,7 @@ class TState:
         indices = colist.unique_indices(self.width)
         targets = [map(convert, self.columns[i]) for i in indices]
         newcols = [mapper(column) for column in targets]
-        self.insert_after(newcols, indices)
+        self.insert_columns(newcols, indices)
 
     def map_columns(self, colist, mapper):
 
@@ -315,108 +315,6 @@ class ColumnList:
         for i in self.indices(width):
             result[i] = True
         return result
-
-####################################################################################################
-
-def guess_separators(lines):
-
-    """
-    Given a sample of lines, try to determine the input field separator.  Return a
-    splitting function and the best output separator.
-    """
-
-    def splitter(sep):
-        return lambda s: s.split(sep)
-
-    if len(lines) == 0:
-        return WHITESPACE.split, "\t"
-
-    if all(PSQL_GUTTER.search(line) for line in lines):
-        return PSQL_SEPARATOR.split, "\t"
-
-    def allsame(array):
-        return array[0] > 0 and all(map(lambda n: n == array[0], array))
-
-    for sep in ["|", "\t", ","]:
-        if allsame([line.count(sep) for line in lines]):
-            return splitter(sep), sep
-
-    return WHITESPACE.split, "\t"
-
-def guess_type(column):
-
-    """
-    Given a sample of column values, try to guess the type; return the type class and a
-    default conversion function.
-    """
-
-    if len(column) == 0:
-        return str, str
-
-    column = map(convert, column)
-    if all(type(x) == int for x in column):
-        return int, lambda x: convert(x, locale.atoi)
-    elif all(type(x) in [float, int] for x in column):
-        return float, lambda x: convert(x, locale.atof)
-    elif all(type(x) == date for x in column):
-        # TODO: handle multiple date input formats
-        return date, lambda x: x.strptimetime("%Y-%m-%d")
-    else:
-        return str, str
-
-def convert(value, bias=None):
-
-    """
-    Intuit the type of a value and convert it.  
-    
-    Anything not a string is returned unchanged; otherwise we try the bias function if
-    specified; otherwise try ints, floats, and some date formats.  Commas are stripped
-    before numeric parsing.
-    """
-
-    if value is None:
-        return None
-
-    if type(value) != str:
-        return value
-
-    svalue = strip_commas(value)
-    if bias is not None:
-        try:
-            return bias(svalue)
-        except:
-            return value
-
-    try:
-        return locale.atoi(svalue)
-    except:
-        try:
-            return locale.atof(svalue)
-        except:
-            pass
-
-    m = DATE_YYYYMMDD.match(value)
-    if m:
-        # TODO: handle multiple date input formats
-        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-
-    return value
-
-
-def make_format(typ, comma=False):
-
-    """
-    Return a formatting function for the indicated type.
-    Numerics will have commas unless overridden.
-    """
-
-    if typ == float:
-        return "{:,.2f}".format if comma else "{:.2f}".format
-    elif typ == int:
-        return "{:,}".format if comma else str
-    else:
-        # TODO: date formatter needed here?
-        return str
 
 ####################################################################################################
 
@@ -533,12 +431,9 @@ def prepend_ordinal(ts):
     Add an ordinal value (1-based) to the beginning of every line.
     """
 
-    lineno = 1
-    for row in ts.rows:
-        row.insert(0, lineno)
-        ts.write(row)
-        lineno += 1
-
+    numbers = take(len(ts.columns[0]), count(1))
+    ts.insert_columns([numbers], [0], False)
+    
 def reformat_date(ts, dateformat, colist):
 
     # TODO: comment
@@ -598,6 +493,108 @@ def wikify_output(ts):
     ts.suppress = True
     for row in transpose(map(neaten, ts.columns)):
         print "| " + " | ".join(row) + " |"
+
+####################################################################################################
+
+def guess_separators(lines):
+
+    """
+    Given a sample of lines, try to determine the input field separator.  Return a
+    splitting function and the best output separator.
+    """
+
+    def splitter(sep):
+        return lambda s: s.split(sep)
+
+    if len(lines) == 0:
+        return WHITESPACE.split, "\t"
+
+    if all(PSQL_GUTTER.search(line) for line in lines):
+        return PSQL_SEPARATOR.split, "\t"
+
+    def allsame(array):
+        return array[0] > 0 and all(map(lambda n: n == array[0], array))
+
+    for sep in ["|", "\t", ","]:
+        if allsame([line.count(sep) for line in lines]):
+            return splitter(sep), sep
+
+    return WHITESPACE.split, "\t"
+
+def guess_type(column):
+
+    """
+    Given a sample of column values, try to guess the type; return the type class and a
+    default conversion function.
+    """
+
+    if len(column) == 0:
+        return str, str
+
+    column = map(convert, column)
+    if all(type(x) == int for x in column):
+        return int, lambda x: convert(x, locale.atoi)
+    elif all(type(x) in [float, int] for x in column):
+        return float, lambda x: convert(x, locale.atof)
+    elif all(type(x) == date for x in column):
+        # TODO: handle multiple date input formats
+        return date, lambda x: x.strptimetime("%Y-%m-%d")
+    else:
+        return str, str
+
+def convert(value, bias=None):
+
+    """
+    Intuit the type of a value and convert it.  
+    
+    Anything not a string is returned unchanged; otherwise we try the bias function if
+    specified; otherwise try ints, floats, and some date formats.  Commas are stripped
+    before numeric parsing.
+    """
+
+    if value is None:
+        return None
+
+    if type(value) != str:
+        return value
+
+    svalue = strip_commas(value)
+    if bias is not None:
+        try:
+            return bias(svalue)
+        except:
+            return value
+
+    try:
+        return locale.atoi(svalue)
+    except:
+        try:
+            return locale.atof(svalue)
+        except:
+            pass
+
+    m = DATE_YYYYMMDD.match(value)
+    if m:
+        # TODO: handle multiple date input formats
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+    return value
+
+
+def make_format(typ, comma=False):
+
+    """
+    Return a formatting function for the indicated type.
+    Numerics will have commas unless overridden.
+    """
+
+    if typ == float:
+        return "{:,.2f}".format if comma else "{:.2f}".format
+    elif typ == int:
+        return "{:,}".format if comma else str
+    else:
+        # TODO: date formatter needed here?
+        return str
 
 ####################################################################################################
 

@@ -47,6 +47,10 @@ execfile("tests/delta.py")
 execfile("tests/per.py")
 execfile("tests/ema.py")
 execfile("tests/round.py")
+execfile("tests/ord.py")
+# execfile("tests/add.py")
+# execfile("tests/sub.py")
+# execfile("tests/set.py")
 
 sys.exit(1 if nerrors > 0 else 0)
 
