@@ -3,7 +3,7 @@
 # Keeping everything in memory and running each step as a separate pass over an
 # array is less than efficient, but I haven't had a compelling need for
 # anything more elaborate.  If that arises, add multiprocessing, and have
-# ts.rows iterate over the output from the prior step.
+# table.rows iterate over the output from the prior step.
 
 from collections import deque
 from datetime import date, datetime, time
@@ -41,10 +41,10 @@ SEPARATOR_NAMES = {
 
 ####################################################################################################
 
-def main(args):
+def main(argv):
 
-    ts = TState()
-    steps = parse_args(ts, args)
+    table = Table()
+    steps = parse_argv(table, argv)
 
     lines = [line.strip() for line in sys.stdin]
     if len(lines) == 0:
@@ -52,15 +52,15 @@ def main(args):
 
     # Determine how to split lines into rows
 
-    if ts.ifs == " ":
+    if table.input_separator == " ":
         splitter = WHITESPACE.split
-    elif ts.ifs is not None:
-        splitter = lambda line: line.split(ts.ifs)
+    elif table.input_separator is not None:
+        splitter = lambda line: line.split(table.input_separator)
     else:
-        splitter, ofs = guess_separators(lines[:10])
-        # Use best guess for OFS if it wasn't set
-        if ts.ofs is None:
-            ts.ofs = ofs
+        splitter, output_separator = guess_separators(lines[:10])
+        # Use best guess for output separator if user didn't specify it
+        if table.output_separator is None:
+            table.output_separator = output_separator
 
     rows = [splitter(line) for line in lines]
     widest = max(len(row) for row in rows)
@@ -78,20 +78,20 @@ def main(args):
     # Transpose to columns & run steps,
     # then back to rows for output.
 
-    ts.columns = transpose(rows)
-    ts.width = widest
+    table.columns = transpose(rows)
+    table.width = widest
 
     for step in steps:
-        step(ts)
+        step(table)
 
-    if ts.columns and not ts.suppress:
-        for row in transpose(ts.columns):
-            print ts.ofs.join(map(str, row))
+    if table.columns and not table.suppress:
+        for row in transpose(table.columns):
+            print table.output_separator.join(map(str, row))
 
-def parse_args(ts, args):
+def parse_argv(table, argv):
 
     """
-    Parse the argument queue, make changes to TState, and return a transformation function for 
+    Parse the argument queue, make changes to a Table, and return a transformation function for 
     each step that operates on input rows.
     """
 
@@ -99,13 +99,13 @@ def parse_args(ts, args):
 
     def add_step(function, *arg_info):
 
-        parsed_args = [parse_arg(args, a[0], a[1]) for a in arg_info]
-        steps.append(lambda ts: function(ts, *parsed_args))
+        parsed_args = [parse_arg(argv, a[0], a[1]) for a in arg_info]
+        steps.append(lambda table: function(table, *parsed_args))
 
-    while len(args) > 0:
+    while len(argv) > 0:
 
-        arg = args.popleft()
-        nextarg = args[0] if len(args) > 0 else None
+        arg = argv.popleft()
+        nextarg = argv[0] if len(argv) > 0 else None
 
         # This parsing is best understood by reading the step documentation.
         #
@@ -113,16 +113,16 @@ def parse_args(ts, args):
         # if statement is easier to follow.
 
         if arg in SEPARATOR_NAMES:
-            ts.ifs = SEPARATOR_NAMES[arg]
-            ts.ofs = SEPARATOR_NAMES[arg]
+            table.input_separator = SEPARATOR_NAMES[arg]
+            table.output_separator = SEPARATOR_NAMES[arg]
 
         elif arg == "to" and nextarg in SEPARATOR_NAMES:
-            ts.ofs = SEPARATOR_NAMES[nextarg]
-            args.popleft()
+            table.output_separator = SEPARATOR_NAMES[nextarg]
+            argv.popleft()
 
         elif RANGES.match(arg):
-            args.appendleft(arg)
-            args.appendleft("keep")
+            argv.appendleft(arg)
+            argv.appendleft("keep")
 
         elif arg == "cum":
             add_step(calc_cum, ("column expression", ColumnList.from_string))
@@ -169,17 +169,17 @@ def parse_args(ts, args):
 
     return steps
 
-def parse_arg(args, description, converter):
+def parse_arg(argv, description, converter):
 
     """
     Handle parsing of one arg; pop it off the queue and pass it to the conversion function.
     Die if the queue is empty or the converter returns None or raises an exception.
     """
 
-    if len(args) == 0:
+    if len(argv) == 0:
         die("Missing argument, expected " + description)
 
-    arg = args.popleft()
+    arg = argv.popleft()
     value = converter(arg)
 
     if value is None:
@@ -189,19 +189,15 @@ def parse_arg(args, description, converter):
 
 ####################################################################################################
 
-class TState:
-
-    """
-    Global mutable state.
-    """
+class Table:
 
     def __init__(self):
 
-        # Input field separator
-        self.ifs = None
+        # Split input fields on this
+        self.input_separator = None
 
-        # Output field separator
-        self.ofs = None
+        # Join output fields on this
+        self.output_separator = None
 
         # Columns generated from input lines
         self.columns = []
@@ -318,7 +314,7 @@ class ColumnList:
 
 ####################################################################################################
 
-def calc_delta(ts, colist):
+def calc_delta(table, colist):
 
     """
     Insert a running delta for each tagged column in colist.
@@ -327,9 +323,9 @@ def calc_delta(ts, colist):
     def delta(column):
         return [a - b for a, b in with_prev(column, column[0])]
 
-    ts.calc_columns(colist, delta)
+    table.calc_columns(colist, delta)
 
-def calc_ema(ts, k, colist):
+def calc_ema(table, k, colist):
 
     """
     Insert a running exponential moving average for each tagged column in colist.
@@ -338,9 +334,9 @@ def calc_ema(ts, k, colist):
     def ema(prev, curr):
         return ((k - 1) * prev + curr) * 1.0 / k
 
-    ts.calc_columns(colist, lambda column: remap(ema, column))
+    table.calc_columns(colist, lambda column: remap(ema, column))
 
-def calc_percent(ts, colist):
+def calc_percent(table, colist):
 
     """
     For each column in colist, calculate and insert its percent of the total value
@@ -354,9 +350,9 @@ def calc_percent(ts, colist):
         else:
             return [0 for item in column]
 
-    ts.calc_columns(colist, percent)
+    table.calc_columns(colist, percent)
 
-def calc_round(ts, places, colist):
+def calc_round(table, places, colist):
 
     """
     For each column in colist, round its values to N places.
@@ -365,44 +361,44 @@ def calc_round(ts, places, colist):
     def doround(column):
         return map(lambda value: round(float(value), places), column)
 
-    ts.map_columns(colist, doround)
+    table.map_columns(colist, doround)
 
-def calc_cum(ts, colist):
+def calc_cum(table, colist):
 
     """
     Insert a running sum for each tagged column in colist.
     """
 
-    ts.calc_columns(colist, lambda column: remap(op.add, column, 0))
+    table.calc_columns(colist, lambda column: remap(op.add, column, 0))
 
-def duplicate_columns(ts, colist):
+def duplicate_columns(table, colist):
 
     """
     Insert a duplicate of the tagged columns in colist.
     """
 
-    ts.calc_columns(colist, lambda column: column[:])
+    table.calc_columns(colist, lambda column: column[:])
 
-def drop_columns(ts, colist):
+def drop_columns(table, colist):
 
     """
     Remove the designated columns.
     """
 
-    flags = colist.flags(ts.width)
-    ts.columns = [column for i, column in enumerate(ts.columns) if not flags[i]]
+    flags = colist.flags(table.width)
+    table.columns = [column for i, column in enumerate(table.columns) if not flags[i]]
 
-def keep_columns(ts, colist):
+def keep_columns(table, colist):
 
     """
     Remove all but the designated columns.  Note, this is not simply the opposite of 
     drop_columns, since the order may be changed e.g.: keep 3,2,1
     """
 
-    indices = colist.indices(ts.width)
-    ts.columns = [ts.columns[i][:] for i in indices]
+    indices = colist.indices(table.width)
+    table.columns = [table.columns[i][:] for i in indices]
 
-def neaten_output(ts):
+def neaten_output(table):
 
     """
     Generate easily readable text output.
@@ -421,24 +417,24 @@ def neaten_output(ts):
         maxwidth = max(map(len, column))
         return [spacer(item, maxwidth) for item in column]
 
-    ts.suppress = True
-    for row in transpose(map(neaten, ts.columns)):
+    table.suppress = True
+    for row in transpose(map(neaten, table.columns)):
         print "  ".join(row)
 
-def prepend_ordinal(ts):
+def prepend_ordinal(table):
 
     """
     Add an ordinal value (1-based) to the beginning of every line.
     """
 
-    numbers = take(len(ts.columns[0]), count(1))
-    ts.insert_columns([numbers], [0], False)
+    numbers = take(len(table.columns[0]), count(1))
+    table.insert_columns([numbers], [0], False)
     
-def reformat_date(ts, dateformat, colist):
+def reformat_date(table, dateformat, colist):
 
     # TODO: comment
 
-    rows = list(ts.rows)
+    rows = list(table.rows)
     sample = transpose(rows[:20])
     columns = colist.indices(len(rows[0]))
     formatter = lambda d: d.strftime(dateformat)
@@ -455,16 +451,16 @@ def reformat_date(ts, dateformat, colist):
             die("Can't convert column %d to dates" % index)
 
     for row in rows:
-        ts.write(row)
+        table.write(row)
 
-def set_column(ts, cmatch):
+def set_column(table, cmatch):
 
     """
     Set the value of a column to the result of an expression, where e.g. cN = row[N-1].
     cmatch has already matched the column # and replacement.
     """
 
-    rows = list(ts.rows)
+    rows = list(table.rows)
     target = int(cmatch.group(1)) - 1
     expr = cmatch.group(2)
     setbody = re.sub("c(\d+)", lambda m: "row[%d]" % int(m.group(1))-1, expr)
@@ -472,9 +468,9 @@ def set_column(ts, cmatch):
 
     for row in rows:
         row[target] = setter(row)
-        ts.write(row)
+        table.write(row)
 
-def wikify_output(ts):
+def wikify_output(table):
 
     """
     Generate output suitable for Twiki or Confluence.
@@ -490,8 +486,8 @@ def wikify_output(ts):
             return [" " + formatter(converter(item)) for item in column]
         return column
 
-    ts.suppress = True
-    for row in transpose(map(neaten, ts.columns)):
+    table.suppress = True
+    for row in transpose(map(neaten, table.columns)):
         print "| " + " | ".join(row) + " |"
 
 ####################################################################################################
