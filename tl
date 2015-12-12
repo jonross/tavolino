@@ -15,16 +15,23 @@ import sys
 
 ####################################################################################################
 
-PSQL_GUTTER = re.compile(r"(\t|    )\| \S")
-PSQL_SEPARATOR = re.compile(r"\s+\| ")
+# Matches any run of whitespace
 WHITESPACE = re.compile(r"\s+")
+# Matches a string containing only an integer, with no whitespace
 INTEGER = re.compile("^\d+$")
+# Matches e.g. "1-3" or "8-"
 RANGE = re.compile("^(\d+)-(\d*)$")
+# Matches e.g. "1-3,5,8-"
 RANGES = re.compile("^[0-9-]+(,[0-9-]+)*$")
+# How to recognize a date a la 2015-04-01
 DATE_YYYYMMDD = re.compile("^(\d\d\d\d)-(\d\d)-(\d\d)$")
+# How to recognize tabular Postgres output
+PSQL_GUTTER = re.compile(r"(\t|    )\| \S")
+# How to split tabular Postgres output
+PSQL_SEPARATOR = re.compile(r"\s+\| ")
 
+# Are numbers like "1,000.00" or "1.000,00"
 locale.setlocale(locale.LC_ALL, "")
-
 if locale.format("%.2f", 1.0) == "1,00":
     NUMCOMMA = "."
     NUMDOT = ","
@@ -46,7 +53,7 @@ def main(argv):
     table = Table()
     steps, options = parse_argv(argv)
 
-    lines = [line.strip() for line in sys.stdin]
+    lines = map(str.strip, sys.stdin)
     if len(lines) == 0:
         sys.exit(0)
 
@@ -66,10 +73,10 @@ def main(argv):
     if options.join_on is not None:
         join_on = options.join_on
 
-    rows = [splitter(line) for line in lines]
-    widest = max(len(row) for row in rows)
+    # Split to rows then widen to max width.
 
-    # Widen rows to max width
+    rows = map(splitter, lines)
+    widest = max(map(len, rows))
 
     def normalize(row):
         if len(row) < widest:
@@ -79,8 +86,7 @@ def main(argv):
 
     rows = map(normalize, rows)
 
-    # Transpose to columns & run steps,
-    # then back to rows for output.
+    # Transpose to columns & run steps, then back to rows for output.
 
     table.columns = transpose(rows)
     table.width = widest
