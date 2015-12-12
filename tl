@@ -5,7 +5,7 @@
 # anything more elaborate.  If that arises, add multiprocessing, and have
 # table.rows iterate over the output from the prior step.
 
-from collections import deque, namedtuple
+from collections import namedtuple
 from datetime import date, datetime, time
 from funcy import compose, count, dec, icat, imap, izip, memoize, take, with_prev
 import locale
@@ -30,31 +30,24 @@ PSQL_GUTTER = re.compile(r"(\t|    )\| \S")
 # How to split tabular Postgres output
 PSQL_SEPARATOR = re.compile(r"\s+\| ")
 
+# Command-line synonyms for common field separators
+SEPARATOR_NAMES = { "csv" : ",", "psv" : "|", "ssv" : " ", "tsv" : "\t" }
+
 # Holds information from the command line other than step functions
 Options = namedtuple("Options", "split_on join_on")
 
 # Are numbers like "1,000.00" or "1.000,00"
 locale.setlocale(locale.LC_ALL, "")
 if locale.format("%.2f", 1.0) == "1,00":
-    NUMCOMMA = "."
-    NUMDOT = ","
+    NUMCOMMA, NUMDOT = ".", ","
 else:
-    NUMCOMMA = ","
-    NUMDOT = "."
-
-SEPARATOR_NAMES = {
-    "csv" : ",",
-    "psv" : "|",
-    "ssv" : " ",
-    "tsv" : "\t"
-    }
+    NUMCOMMA, NUMDOT = ",", "."
 
 ####################################################################################################
 
 def main(argv):
 
     steps, options = parse_argv(argv)
-
     lines = map(str.strip, sys.stdin)
     if len(lines) == 0:
         sys.exit(0)
@@ -131,32 +124,15 @@ def parse_argv(argv, steps=[], options=Options(None, None)):
     if len(argv) == 0:
         return steps, options
 
-    def parse_step_args(step, *howto):
-        step_args = []
-        for description, converter in howto:
-            if len(argv) == 0:
-                die("Missing argument, expected " + description)
-            arg = argv.popleft()
-            value = converter(arg)
-            if value is None:
-                die ("Expected " + description + " but got " + arg)
-            step_args.append(value)
-        steps.append(lambda table: step(table, *step_args))
-
-    arg = argv.popleft()
+    arg, argv = argv[0], argv[1:]
     nextarg = argv[0] if len(argv) > 0 else None
-
-    # This parsing is best understood by reading the step documentation.
-    #
-    # I could also do this with fancy decorators on each step function, but a simple 
-    # if statement is easier to follow.
 
     if arg in SEPARATOR_NAMES:
         options = options._replace(split_on=SEPARATOR_NAMES[arg], join_on=SEPARATOR_NAMES[arg])
 
     elif arg == "to" and nextarg in SEPARATOR_NAMES:
         options = options._replace(join_on=SEPARATOR_NAMES[nextarg])
-        argv.popleft()
+        argv = argv[1:]
 
     elif RANGES.match(arg):
         argv.appendleft(arg)
@@ -166,7 +142,17 @@ def parse_argv(argv, steps=[], options=Options(None, None)):
         specs = arg_specs().get(arg)
         if specs is None:
             die("Unknown step: " + arg)
-        parse_step_args(eval(arg + "_step"), *specs)
+        step_fn = eval(arg + "_step")
+        step_args = []
+        for description, converter in specs:
+            if len(argv) == 0:
+                die("Missing argument, expected " + description)
+            arg, argv = argv[0], argv[1:]
+            value = converter(arg)
+            if value is None:
+                die ("Expected " + description + " but got " + arg)
+            step_args.append(value)
+        steps.append(lambda table: step_fn(table, *step_args))
 
     return parse_argv(argv, steps, options)
 
@@ -597,5 +583,5 @@ def warn(message):
 
 ####################################################################################################
 
-main(deque(sys.argv[1:]))
+main(sys.argv[1:])
 
