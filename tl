@@ -5,9 +5,9 @@
 # anything more elaborate.  If that arises, add multiprocessing, and have
 # table.rows iterate over the output from the prior step.
 
-from collections import deque
+from collections import deque, namedtuple
 from datetime import date, datetime, time
-from funcy import compose, count, dec, icat, imap, take, with_prev
+from funcy import compose, count, dec, icat, imap, izip, memoize, take, with_prev
 import locale
 import operator as op
 import re
@@ -29,6 +29,9 @@ DATE_YYYYMMDD = re.compile("^(\d\d\d\d)-(\d\d)-(\d\d)$")
 PSQL_GUTTER = re.compile(r"(\t|    )\| \S")
 # How to split tabular Postgres output
 PSQL_SEPARATOR = re.compile(r"\s+\| ")
+
+# Holds information from the command line other than step functions
+Options = namedtuple("Options", "split_on join_on")
 
 # Are numbers like "1,000.00" or "1.000,00"
 locale.setlocale(locale.LC_ALL, "")
@@ -92,108 +95,80 @@ def main(argv):
         step(table)
 
     if table.columns and not table.suppress:
-        for row in zip(*table.columns):
+        for row in izip(*table.columns):
             print join_on.join(map(str, row))
 
-def parse_argv(argv):
+####################################################################################################
 
+@memoize
+def arg_specs():
+    """Returns a dict describing how to parse options for step names.
+    Keys are step names, and the values are an array of tuples, one per arg, with each tuple
+    containing a description of the arg, and a function to parse it (returning None on failure.)
     """
-    Parse the argument queue, make changes to a Table, and return a transformation function for 
-    each step that operates on input rows.
-    """
+    return {
+        "cum":      [("column expression", ColumnList.from_string)],
+        "delta":    [("column expression", ColumnList.from_string)],
+        "drop":     [("column expression", ColumnList.from_string)],
+        "dup":      [("column expression", ColumnList.from_string)],
+        "ema":      [("EMA period", silent(int)), 
+                     ("column expression", ColumnList.from_string)],
+        "keep":     [("column expression", ColumnList.from_string)],
+        "neat":     [],
+        "ord":      [],
+        "per":      [("column expression", ColumnList.from_string)],
+        "redate":   [("date format", str), 
+                     ("column expression", ColumnList.from_string)],
+        "round":    [("# of places", silent(int)),
+                     ("column expression", ColumnList.from_string)],
+        "set":      [("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match)],
+        "wiki":     []
+    }
 
-    steps = []
-    options = Options()
-
-    def add_step(function, *arg_info):
-
-        parsed_args = [parse_arg(argv, a[0], a[1]) for a in arg_info]
-        steps.append(lambda table: function(table, *parsed_args))
-
-    while len(argv) > 0:
-
-        arg = argv.popleft()
-        nextarg = argv[0] if len(argv) > 0 else None
-
-        # This parsing is best understood by reading the step documentation.
-        #
-        # I could also do this with fancy decorators on each step function, but a simple 
-        # if statement is easier to follow.
-
-        if arg in SEPARATOR_NAMES:
-            options.split_on = SEPARATOR_NAMES[arg]
-            options.join_on = SEPARATOR_NAMES[arg]
-
-        elif arg == "to" and nextarg in SEPARATOR_NAMES:
-            options.join_on = SEPARATOR_NAMES[nextarg]
-            argv.popleft()
-
-        elif RANGES.match(arg):
-            argv.appendleft(arg)
-            argv.appendleft("keep")
-
-        elif arg == "cum":
-            add_step(calc_cum, ("column expression", ColumnList.from_string))
-
-        elif arg == "delta":
-            add_step(calc_delta, ("column expression", ColumnList.from_string))
-
-        elif arg == "drop":
-            add_step(drop_columns, ("column expression", ColumnList.from_string))
-
-        elif arg == "dup":
-            add_step(duplicate_columns, ("column expression", ColumnList.from_string))
-
-        elif arg == "ema":
-            add_step(calc_ema, ("EMA period", silent(int)), ("column expression", ColumnList.from_string))
-
-        elif arg == "keep":
-            add_step(keep_columns, ("column expression", ColumnList.from_string))
-
-        elif arg == "neat":
-            add_step(neaten_output)
-
-        elif arg == "ord":
-            add_step(prepend_ordinal)
-
-        elif arg == "per":
-            add_step(calc_percent, ("column expression", ColumnList.from_string))
-
-        elif arg == "redate":
-            # TODO: tests
-            add_step(reformat_date, ("date format", str), ("column expression", ColumnList.from_string))
-
-        elif arg == "round":
-            add_step(calc_round, ("# of places", silent(int)), ("column expression", ColumnList.from_string))
-
-        elif arg == "set":
-            add_step(set_column, ("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match))
-
-        elif arg == "wiki":
-            add_step(wikify_output)
-
-        else:
-            die("Unknown step: " + arg)
-
-    return steps, options
-
-def parse_arg(argv, description, converter):
-
-    """
-    Handle parsing of one arg; pop it off the queue and pass it to the conversion function.
-    Die if the queue is empty or the converter returns None or raises an exception.
-    """
+def parse_argv(argv, steps=[], options=Options(None, None)):
+    """Parse command line, returning a list of transformation steps and additional options."""
 
     if len(argv) == 0:
-        die("Missing argument, expected " + description)
+        return steps, options
+
+    def parse_step_args(step, *howto):
+        step_args = []
+        for description, converter in howto:
+            if len(argv) == 0:
+                die("Missing argument, expected " + description)
+            arg = argv.popleft()
+            value = converter(arg)
+            if value is None:
+                die ("Expected " + description + " but got " + arg)
+            step_args.append(value)
+        steps.append(lambda table: step(table, *step_args))
 
     arg = argv.popleft()
-    value = converter(arg)
+    nextarg = argv[0] if len(argv) > 0 else None
 
-    if value is None:
-        die ("Expected " + description + " but got " + arg)
+    # This parsing is best understood by reading the step documentation.
+    #
+    # I could also do this with fancy decorators on each step function, but a simple 
+    # if statement is easier to follow.
 
-    return value
+    if arg in SEPARATOR_NAMES:
+        options = options._replace(split_on=SEPARATOR_NAMES[arg], join_on=SEPARATOR_NAMES[arg])
+
+    elif arg == "to" and nextarg in SEPARATOR_NAMES:
+        options = options._replace(join_on=SEPARATOR_NAMES[nextarg])
+        argv.popleft()
+
+    elif RANGES.match(arg):
+        argv.appendleft(arg)
+        argv.appendleft("keep")
+
+    else:
+        specs = arg_specs().get(arg)
+        if specs is None:
+            die("Unknown step: " + arg)
+        parse_step_args(eval(arg + "_step"), *specs)
+
+    return parse_argv(argv, steps, options)
 
 ####################################################################################################
 
@@ -236,16 +211,6 @@ class Table:
 
         for i in colist.unique_indices(self.width):
             self.columns[i] = mapper(map(convert, self.columns[i]))
-
-class Options:
-
-    """Holds information from the command line other than step functions"""
-
-    def __init__(self):
-        # Split input lines on this
-        self.split_on = None
-        # Join output fields on this
-        self.join_on = None
 
 class ColumnList:
 
@@ -325,7 +290,7 @@ class ColumnList:
 
 ####################################################################################################
 
-def calc_delta(table, colist):
+def delta_step(table, colist):
 
     """
     Insert a running delta for each tagged column in colist.
@@ -336,7 +301,7 @@ def calc_delta(table, colist):
 
     table.calc_columns(colist, delta)
 
-def calc_ema(table, k, colist):
+def ema_step(table, k, colist):
 
     """
     Insert a running exponential moving average for each tagged column in colist.
@@ -347,7 +312,7 @@ def calc_ema(table, k, colist):
 
     table.calc_columns(colist, lambda column: remap(ema, column))
 
-def calc_percent(table, colist):
+def per_step(table, colist):
 
     """
     For each column in colist, calculate and insert its percent of the total value
@@ -363,7 +328,7 @@ def calc_percent(table, colist):
 
     table.calc_columns(colist, percent)
 
-def calc_round(table, places, colist):
+def round_step(table, places, colist):
 
     """
     For each column in colist, round its values to N places.
@@ -374,7 +339,7 @@ def calc_round(table, places, colist):
 
     table.map_columns(colist, doround)
 
-def calc_cum(table, colist):
+def cum_step(table, colist):
 
     """
     Insert a running sum for each tagged column in colist.
@@ -382,7 +347,7 @@ def calc_cum(table, colist):
 
     table.calc_columns(colist, lambda column: remap(op.add, column, 0))
 
-def duplicate_columns(table, colist):
+def dup_step(table, colist):
 
     """
     Insert a duplicate of the tagged columns in colist.
@@ -390,7 +355,7 @@ def duplicate_columns(table, colist):
 
     table.calc_columns(colist, lambda column: column[:])
 
-def drop_columns(table, colist):
+def drop_step(table, colist):
 
     """
     Remove the designated columns.
@@ -399,7 +364,7 @@ def drop_columns(table, colist):
     flags = colist.flags(table.width)
     table.columns = [column for i, column in enumerate(table.columns) if not flags[i]]
 
-def keep_columns(table, colist):
+def keep_step(table, colist):
 
     """
     Remove all but the designated columns.  Note, this is not simply the opposite of 
@@ -409,7 +374,7 @@ def keep_columns(table, colist):
     indices = colist.indices(table.width)
     table.columns = [table.columns[i][:] for i in indices]
 
-def neaten_output(table):
+def neat_step(table):
 
     """
     Generate easily readable text output.
@@ -432,7 +397,7 @@ def neaten_output(table):
     for row in zip(*map(neaten, table.columns)):
         print "  ".join(row)
 
-def prepend_ordinal(table):
+def ord_step(table):
 
     """
     Add an ordinal value (1-based) to the beginning of every line.
@@ -441,9 +406,9 @@ def prepend_ordinal(table):
     numbers = take(len(table.columns[0]), count(1))
     table.insert_columns([numbers], [0], False)
     
-def reformat_date(table, dateformat, colist):
+def redate_step(table, dateformat, colist):
 
-    # TODO: comment
+    # TODO: comment & test
 
     rows = list(table.rows)
     sample = transpose(*rows[:20])
@@ -464,7 +429,7 @@ def reformat_date(table, dateformat, colist):
     for row in rows:
         table.write(row)
 
-def set_column(table, cmatch):
+def set_step(table, cmatch):
 
     """
     Set the value of a column to the result of an expression, where e.g. cN = row[N-1].
@@ -481,7 +446,7 @@ def set_column(table, cmatch):
         row[target] = setter(row)
         table.write(row)
 
-def wikify_output(table):
+def wiki_step(table):
 
     """
     Generate output suitable for Twiki or Confluence.
