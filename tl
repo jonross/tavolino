@@ -50,7 +50,6 @@ SEPARATOR_NAMES = {
 
 def main(argv):
 
-    table = Table()
     steps, options = parse_argv(argv)
 
     lines = map(str.strip, sys.stdin)
@@ -88,14 +87,12 @@ def main(argv):
 
     # Transpose to columns & run steps, then back to rows for output.
 
-    table.columns = transpose(rows)
-    table.width = widest
-
+    table = Table(zip(*rows))
     for step in steps:
         step(table)
 
     if table.columns and not table.suppress:
-        for row in transpose(table.columns):
+        for row in zip(*table.columns):
             print join_on.join(map(str, row))
 
 def parse_argv(argv):
@@ -202,11 +199,10 @@ def parse_arg(argv, description, converter):
 
 class Table:
 
-    def __init__(self):
+    def __init__(self, columns):
 
-        # Columns generated from input lines
-        self.columns = []
-
+        self.columns = columns
+        self.width = len(columns)
         # Suppress final output (if a step has done custom output)
         self.suppress = False
 
@@ -433,7 +429,7 @@ def neaten_output(table):
         return [spacer(item, maxwidth) for item in column]
 
     table.suppress = True
-    for row in transpose(map(neaten, table.columns)):
+    for row in zip(*map(neaten, table.columns)):
         print "  ".join(row)
 
 def prepend_ordinal(table):
@@ -450,7 +446,7 @@ def reformat_date(table, dateformat, colist):
     # TODO: comment
 
     rows = list(table.rows)
-    sample = transpose(rows[:20])
+    sample = transpose(*rows[:20])
     columns = colist.indices(len(rows[0]))
     formatter = lambda d: d.strftime(dateformat)
 
@@ -502,7 +498,7 @@ def wikify_output(table):
         return column
 
     table.suppress = True
-    for row in transpose(map(neaten, table.columns)):
+    for row in zip(*map(neaten, table.columns)):
         print "| " + " | ".join(row) + " |"
 
 ####################################################################################################
@@ -630,11 +626,6 @@ def silent(f):
 
 def strip_commas(value):
     return value.translate(None, NUMCOMMA) if NUMCOMMA in value else value
-
-def transpose(rows):
-    if len(rows) == 0:
-        return rows
-    return [[rows[n][i] for n in range(len(rows))] for i in range(len(rows[0]))]
 
 def warn(message):
     sys.stderr.write(message + "\n")
