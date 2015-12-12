@@ -44,23 +44,27 @@ SEPARATOR_NAMES = {
 def main(argv):
 
     table = Table()
-    steps = parse_argv(table, argv)
+    steps, options = parse_argv(argv)
 
     lines = [line.strip() for line in sys.stdin]
     if len(lines) == 0:
         sys.exit(0)
 
-    # Determine how to split lines into rows
+    # Determine how to split lines; default for joining them is how we split them...
 
-    if table.input_separator == " ":
+    if options.split_on == " ":
         splitter = WHITESPACE.split
-    elif table.input_separator is not None:
-        splitter = lambda line: line.split(table.input_separator)
+        join_on = " "
+    elif options.split_on is not None:
+        splitter = lambda line: line.split(options.split_on)
+        join_on = options.split_on
     else:
-        splitter, output_separator = guess_separators(lines[:10])
-        # Use best guess for output separator if user didn't specify it
-        if table.output_separator is None:
-            table.output_separator = output_separator
+        splitter, join_on = guess_separators(lines[:10])
+
+    # ... unless were were told how to join them.
+
+    if options.join_on is not None:
+        join_on = options.join_on
 
     rows = [splitter(line) for line in lines]
     widest = max(len(row) for row in rows)
@@ -86,9 +90,9 @@ def main(argv):
 
     if table.columns and not table.suppress:
         for row in transpose(table.columns):
-            print table.output_separator.join(map(str, row))
+            print join_on.join(map(str, row))
 
-def parse_argv(table, argv):
+def parse_argv(argv):
 
     """
     Parse the argument queue, make changes to a Table, and return a transformation function for 
@@ -96,6 +100,7 @@ def parse_argv(table, argv):
     """
 
     steps = []
+    options = Options()
 
     def add_step(function, *arg_info):
 
@@ -113,11 +118,11 @@ def parse_argv(table, argv):
         # if statement is easier to follow.
 
         if arg in SEPARATOR_NAMES:
-            table.input_separator = SEPARATOR_NAMES[arg]
-            table.output_separator = SEPARATOR_NAMES[arg]
+            options.split_on = SEPARATOR_NAMES[arg]
+            options.join_on = SEPARATOR_NAMES[arg]
 
         elif arg == "to" and nextarg in SEPARATOR_NAMES:
-            table.output_separator = SEPARATOR_NAMES[nextarg]
+            options.join_on = SEPARATOR_NAMES[nextarg]
             argv.popleft()
 
         elif RANGES.match(arg):
@@ -167,7 +172,7 @@ def parse_argv(table, argv):
         else:
             die("Unknown step: " + arg)
 
-    return steps
+    return steps, options
 
 def parse_arg(argv, description, converter):
 
@@ -192,12 +197,6 @@ def parse_arg(argv, description, converter):
 class Table:
 
     def __init__(self):
-
-        # Split input fields on this
-        self.input_separator = None
-
-        # Join output fields on this
-        self.output_separator = None
 
         # Columns generated from input lines
         self.columns = []
@@ -235,6 +234,16 @@ class Table:
 
         for i in colist.unique_indices(self.width):
             self.columns[i] = mapper(map(convert, self.columns[i]))
+
+class Options:
+
+    """Holds information from the command line other than step functions"""
+
+    def __init__(self):
+        # Split input lines on this
+        self.split_on = None
+        # Join output fields on this
+        self.join_on = None
 
 class ColumnList:
 
