@@ -277,94 +277,56 @@ class ColumnList:
 ####################################################################################################
 
 def delta_step(table, colist):
-
-    """
-    Insert a running delta for each tagged column in colist.
-    """
-
+    """Insert a running delta for each tagged column in colist."""
     def delta(column):
         return [a - b for a, b in with_prev(column, column[0])]
-
     table.calc_columns(colist, delta)
 
 def ema_step(table, k, colist):
-
-    """
-    Insert a running exponential moving average for each tagged column in colist.
-    """
-
+    """Insert a running exponential moving average for each tagged column in colist."""
     def ema(prev, curr):
         return ((k - 1) * prev + curr) * 1.0 / k
-
     table.calc_columns(colist, lambda column: remap(ema, column))
 
 def per_step(table, colist):
-
-    """
-    For each column in colist, calculate and insert its percent of the total value
-    for that column.
-    """
-
+    """For each column in colist, calculate and insert its percent of the total value for that column."""
     def percent(column):
         total = sum(column)
         if total > 0:
             return [item * 1.0 / total * 100 for item in column]
         else:
             return [0 for item in column]
-
     table.calc_columns(colist, percent)
 
 def round_step(table, places, colist):
-
-    """
-    For each column in colist, round its values to N places.
-    """
-
+    """For each column in colist, round its values to N places."""
     def doround(column):
         return map(lambda value: round(float(value), places), column)
-
     table.map_columns(colist, doround)
 
 def cum_step(table, colist):
-
-    """
-    Insert a running sum for each tagged column in colist.
-    """
-
+    """Insert a running sum for each tagged column in colist."""
     table.calc_columns(colist, lambda column: remap(op.add, column, 0))
 
 def dup_step(table, colist):
-
-    """
-    Insert a duplicate of the tagged columns in colist.
-    """
+    """Insert a duplicate of the tagged columns in colist."""
 
     table.calc_columns(colist, lambda column: column[:])
 
 def drop_step(table, colist):
-
-    """
-    Remove the designated columns.
-    """
-
+    """Remove the designated columns."""
     flags = colist.flags(table.width)
     table.columns = [column for i, column in enumerate(table.columns) if not flags[i]]
 
 def keep_step(table, colist):
-
-    """
-    Remove all but the designated columns.  Note, this is not simply the opposite of 
+    """Remove all but the designated columns.  Note, this is not simply the opposite of 
     drop_columns, since the order may be changed e.g.: keep 3,2,1
     """
-
     indices = colist.indices(table.width)
     table.columns = [table.columns[i][:] for i in indices]
 
 def neat_step(table):
-
-    """
-    Generate easily readable text output.
-    Try to guess column types to improve formatting.
+    """Generate easily readable text output.  Try to guess column types to improve formatting.
     This can only be the final step in the list.
     """
 
@@ -384,11 +346,7 @@ def neat_step(table):
         print "  ".join(row)
 
 def ord_step(table):
-
-    """
-    Add an ordinal value (1-based) to the beginning of every line.
-    """
-
+    """Add an ordinal value (1-based) to the beginning of every line."""
     numbers = take(len(table.columns[0]), count(1))
     table.insert_columns([numbers], [0], False)
     
