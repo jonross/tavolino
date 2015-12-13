@@ -7,7 +7,7 @@
 
 from collections import namedtuple
 from datetime import date, datetime, time
-from funcy import compose, count, dec, icat, imap, izip, memoize, take, with_prev
+from itertools import chain, imap, izip
 import locale
 import operator as op
 import re
@@ -90,71 +90,6 @@ def main(argv):
     if table.columns and not table.suppress:
         for row in izip(*table.columns):
             print join_on.join(map(str, row))
-
-####################################################################################################
-
-@memoize
-def arg_specs():
-    """Returns a dict describing how to parse options for step names.
-    Keys are step names, and the values are an array of tuples, one per arg, with each tuple
-    containing a description of the arg, and a function to parse it (returning None on failure.)
-    """
-    return {
-        "cum":      [("column expression", ColumnList.from_string)],
-        "delta":    [("column expression", ColumnList.from_string)],
-        "drop":     [("column expression", ColumnList.from_string)],
-        "dup":      [("column expression", ColumnList.from_string)],
-        "ema":      [("EMA period", silent(int)), 
-                     ("column expression", ColumnList.from_string)],
-        "keep":     [("column expression", ColumnList.from_string)],
-        "neat":     [],
-        "ord":      [],
-        "per":      [("column expression", ColumnList.from_string)],
-        "redate":   [("date format", str), 
-                     ("column expression", ColumnList.from_string)],
-        "round":    [("# of places", silent(int)),
-                     ("column expression", ColumnList.from_string)],
-        "set":      [("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match)],
-        "wiki":     []
-    }
-
-def parse_argv(argv, steps=[], options=Options(None, None)):
-    """Parse command line, returning a list of transformation steps and additional options."""
-
-    if len(argv) == 0:
-        return steps, options
-
-    arg, argv = argv[0], argv[1:]
-    nextarg = argv[0] if len(argv) > 0 else None
-
-    if arg in SEPARATOR_NAMES:
-        options = options._replace(split_on=SEPARATOR_NAMES[arg], join_on=SEPARATOR_NAMES[arg])
-
-    elif arg == "to" and nextarg in SEPARATOR_NAMES:
-        options = options._replace(join_on=SEPARATOR_NAMES[nextarg])
-        argv = argv[1:]
-
-    elif RANGES.match(arg):
-        argv.appendleft(arg)
-        argv.appendleft("keep")
-
-    else:
-        specs = arg_specs().get(arg)
-        if specs is None:
-            die("Unknown step: " + arg)
-        step_fn = eval(arg + "_step")
-        step_args = []
-        for description, converter in specs:
-            if len(argv) == 0:
-                die("Missing argument, expected " + description)
-            arg, argv = argv[0], argv[1:]
-            value = converter(arg)
-            if value is None:
-                die ("Expected " + description + " but got " + arg)
-            step_args.append(value)
-        steps.append(lambda table: step_fn(table, *step_args))
-
-    return parse_argv(argv, steps, options)
 
 ####################################################################################################
 
@@ -252,7 +187,7 @@ class ColumnList:
 
         def zerobase(r, width):
             return range(r[0], min(r[1], width) + 1)
-        return map(dec, icat([zerobase(r, width) for r in self.ranges]))
+        return map(lambda x: x - 1, reduce(op.add, [zerobase(r, width) for r in self.ranges]))
 
     def unique_indices(self, width):
 
@@ -276,10 +211,80 @@ class ColumnList:
 
 ####################################################################################################
 
+# A dict describing how to parse options for step names.
+# Keys are step names, and the values are an array of tuples, one per arg, with each tuple
+# containing a description of the arg, and a function to parse it (returning None on failure.)
+
+def silent(f):
+    def wrapped(*args):
+        try:
+            return f(*args)
+        except:
+            return None
+    return wrapped
+
+ARG_SPECS = {
+    "cum":      [("column expression", ColumnList.from_string)],
+    "delta":    [("column expression", ColumnList.from_string)],
+    "drop":     [("column expression", ColumnList.from_string)],
+    "dup":      [("column expression", ColumnList.from_string)],
+    "ema":      [("EMA period", silent(int)), 
+                 ("column expression", ColumnList.from_string)],
+    "keep":     [("column expression", ColumnList.from_string)],
+    "neat":     [],
+    "ord":      [],
+    "per":      [("column expression", ColumnList.from_string)],
+    "redate":   [("date format", str), 
+                 ("column expression", ColumnList.from_string)],
+    "round":    [("# of places", silent(int)),
+                 ("column expression", ColumnList.from_string)],
+    "set":      [("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match)],
+    "wiki":     []
+}
+
+def parse_argv(argv, steps=[], options=Options(None, None)):
+    """Parse command line, returning a list of transformation steps and additional options."""
+
+    if len(argv) == 0:
+        return steps, options
+
+    arg, argv = argv[0], argv[1:]
+    nextarg = argv[0] if len(argv) > 0 else None
+
+    if arg in SEPARATOR_NAMES:
+        options = options._replace(split_on=SEPARATOR_NAMES[arg], join_on=SEPARATOR_NAMES[arg])
+
+    elif arg == "to" and nextarg in SEPARATOR_NAMES:
+        options = options._replace(join_on=SEPARATOR_NAMES[nextarg])
+        argv = argv[1:]
+
+    elif RANGES.match(arg):
+        argv = ["keep", arg] + argv
+
+    else:
+        specs = ARG_SPECS.get(arg)
+        if specs is None:
+            die("Unknown step: " + arg)
+        step_fn = eval(arg + "_step")
+        step_args = []
+        for description, converter in specs:
+            if len(argv) == 0:
+                die("Missing argument, expected " + description)
+            arg, argv = argv[0], argv[1:]
+            value = converter(arg)
+            if value is None:
+                die ("Expected " + description + " but got " + arg)
+            step_args.append(value)
+        steps.append(lambda table: step_fn(table, *step_args))
+
+    return parse_argv(argv, steps, options)
+
+####################################################################################################
+
 def delta_step(table, colist):
     """Insert a running delta for each tagged column in colist."""
     def delta(column):
-        return [a - b for a, b in with_prev(column, column[0])]
+        return [a - b for a, b in zip(column, chain([column[0]], column[:-1]))]
     table.calc_columns(colist, delta)
 
 def ema_step(table, k, colist):
@@ -334,7 +339,7 @@ def neat_step(table):
         kind, converter = guess_type(column[:20])
         if kind in [int, float]:
             formatter = make_format(kind, True)
-            column = map(compose(formatter, converter), column)
+            column = map(lambda cell: formatter(converter(cell)), column)
             spacer = str.rjust
         else:
             spacer = str.ljust
@@ -347,7 +352,7 @@ def neat_step(table):
 
 def ord_step(table):
     """Add an ordinal value (1-based) to the beginning of every line."""
-    numbers = take(len(table.columns[0]), count(1))
+    numbers = range(1, len(table.columns[0])+1)
     table.insert_columns([numbers], [0], False)
     
 def redate_step(table, dateformat, colist):
@@ -524,14 +529,6 @@ def remap(f, list, value=None):
         v[0] = f(v[0], x)
         return v[0]
     return map(f2, list)
-
-def silent(f):
-    def wrapped(*args):
-        try:
-            return f(*args)
-        except:
-            return None
-    return wrapped
 
 def strip_commas(value):
     return value.translate(None, NUMCOMMA) if NUMCOMMA in value else value
