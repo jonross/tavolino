@@ -234,8 +234,8 @@ ARG_SPECS = {
     "neat":     [],
     "ord":      [],
     "per":      [("column expression", ColumnList.from_string)],
-    "redate":   [("date format", str), 
-                 ("column expression", ColumnList.from_string)],
+    "redate":   [("column expression", ColumnList.from_string), 
+                 ("date format", str)],
     "round":    [("# of places", silent(int)),
                  ("column expression", ColumnList.from_string)],
     "set":      [("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match)],
@@ -355,7 +355,7 @@ def ord_step(table):
     numbers = range(1, len(table.columns[0])+1)
     table.insert_columns([numbers], [0], False)
     
-def redate_step(table, dateformat, colist):
+def redate_step(table, colist, dateformat):
 
     # TODO: comment & test
 
