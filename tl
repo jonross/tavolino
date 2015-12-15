@@ -228,8 +228,8 @@ ARG_SPECS = {
     "delta":    [("column expression", ColumnList.from_string)],
     "drop":     [("column expression", ColumnList.from_string)],
     "dup":      [("column expression", ColumnList.from_string)],
-    "ema":      [("EMA period", silent(int)), 
-                 ("column expression", ColumnList.from_string)],
+    "ema":      [("column expression", ColumnList.from_string), 
+                 ("EMA period", silent(int))],
     "keep":     [("column expression", ColumnList.from_string)],
     "neat":     [],
     "ord":      [],
@@ -287,7 +287,7 @@ def delta_step(table, colist):
         return [a - b for a, b in zip(column, chain([column[0]], column[:-1]))]
     table.calc_columns(colist, delta)
 
-def ema_step(table, k, colist):
+def ema_step(table, colist, k):
     """Insert a running exponential moving average for each tagged column in colist."""
     def ema(prev, curr):
         return ((k - 1) * prev + curr) * 1.0 / k

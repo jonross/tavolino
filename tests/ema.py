@@ -1,23 +1,23 @@
 
 test("""missing ema arg 1""", """ema""", PS, """""", """
-Missing argument, expected EMA period
-""")
-
-test("""bad ema arg 1""", """ema x""", PS, """""", """
-Expected EMA period but got x
-""")
-
-test("""missing ema arg 2""", """ema 1""", PS, """""", """
 Missing argument, expected column expression
 """)
 
-test("""bad ema arg 2""", """ema 1 x""", PS, """""", """
+test("""bad ema arg 1""", """ema x""", PS, """""", """
 Invalid column: x
 """)
 
-test("""ema absent column""", """ema 1 99""", PS, PSOUT, """""")
+test("""missing ema arg 2""", """ema 1""", PS, """""", """
+Missing argument, expected EMA period
+""")
 
-test("""ema""", """csv ema 4 1""", """
+test("""bad ema arg 2""", """ema 1 x""", PS, """""", """
+Expected EMA period but got x
+""")
+
+test("""ema absent column""", """ema 99 1""", PS, PSOUT, """""")
+
+test("""ema""", """csv ema 1 4""", """
 0
 8
 8
