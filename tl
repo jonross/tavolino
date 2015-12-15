@@ -236,8 +236,8 @@ ARG_SPECS = {
     "per":      [("column expression", ColumnList.from_string)],
     "redate":   [("column expression", ColumnList.from_string), 
                  ("date format", str)],
-    "round":    [("# of places", silent(int)),
-                 ("column expression", ColumnList.from_string)],
+    "round":    [("column expression", ColumnList.from_string),
+                 ("# of places", silent(int))],
     "set":      [("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match)],
     "wiki":     []
 }
@@ -303,7 +303,7 @@ def per_step(table, colist):
             return [0 for item in column]
     table.calc_columns(colist, percent)
 
-def round_step(table, places, colist):
+def round_step(table, colist, places):
     """For each column in colist, round its values to N places."""
     def doround(column):
         return map(lambda value: round(float(value), places), column)
