@@ -36,6 +36,9 @@ SEPARATOR_NAMES = { "csv" : ",", "psv" : "|", "ssv" : " ", "tsv" : "\t" }
 # Holds information from the command line other than step functions
 Options = namedtuple("Options", "split_on join_on")
 
+# A type conversion indicator that means either int or float
+NUMERIC = object()
+
 # Are numbers like "1,000.00" or "1.000,00"
 locale.setlocale(locale.LC_ALL, "")
 if locale.format("%.2f", 1.0) == "1,00":
@@ -96,42 +99,27 @@ def main(argv):
 class Table:
 
     def __init__(self, columns):
-
         self.columns = columns
         self.width = len(columns)
         # Suppress final output (if a step has done custom output)
         self.suppress = False
 
     def insert_columns(self, newcols, indices, after=True):
+        """Insert each column in newcols before / after its corresponding index in a sorted index list"""
+        offsets = range(1, len(indices)+1) if after else range(len(indices))
+        for newcol, index in zip(newcols, map(op.add, indices, offsets)):
+            self.columns.insert(index, newcol)
 
-        """
-        Insert each column in newcols before / after its corresponding index in indices.
-        indices must be sorted.
-        """
+    def calc_columns(self, colist, mapper, bias=None):
+        """Like insert_columns but works by mapping a function over an existing column set."""
+        indices = colist.uniques(self.width)
+        inputs = [[convert(value, bias) for value in self.columns[i]] for i in indices]
+        self.insert_columns([mapper(column) for column in inputs], indices)
 
-        offset = 1 if after else 0
-        for newcol, index in zip(newcols, indices):
-            self.columns.insert(index + offset, newcol)
-            offset += 1
-
-    def calc_columns(self, colist, mapper):
-
-        """
-        General-purpose support for steps that insert columns generated
-        from other numeric columns.
-        """
-
-        indices = colist.unique_indices(self.width)
-        targets = [map(convert, self.columns[i]) for i in indices]
-        newcols = [mapper(column) for column in targets]
-        self.insert_columns(newcols, indices)
-
-    def map_columns(self, colist, mapper):
-
+    def map_columns(self, colist, mapper, bias=None):
         """Like calc_columns but overwrites the target columns."""
-
-        for i in colist.unique_indices(self.width):
-            self.columns[i] = mapper(map(convert, self.columns[i]))
+        for i in colist.uniques(self.width):
+            self.columns[i] = mapper([convert(value, bias) for value in self.columns[i]])
 
 class ColumnList:
 
@@ -142,41 +130,25 @@ class ColumnList:
     """
 
     def __init__(self, ranges):
-
-        """
-        For the above example, this would contain
-          [(1, 3), (5, 5), (8, 1000)]
-        """
-
+        """ For the above example, this would contain [(1, 3), (5, 5), (8, 1000)]"""
         self.ranges = ranges
 
     @classmethod
     def from_string(cls, s):
-
-        ranges = []
-        for part in s.replace("c", "").split(","):
-
+        def _parse(part):
             if INTEGER.match(part):
                 index = int(part)
                 if index < 1:
                     die("Invalid column index " + part)
-                ranges.append((index, index))
-
-            elif RANGE.match(part):
+                return (index, index)
+            if RANGE.match(part):
                 start, end = part.split("-")
-                if end != "":
-                    start, end = int(start), int(end)
-                    if start < 1 or end < 1 or start > end:
-                        die("Invalid column range: " + part)
-                    ranges.append((start, end))
-                else:
-                    start = int(start)
-                    ranges.append((start, 1000))
-
-            else:
-                die("Invalid column: " + part)
-
-        return ColumnList(ranges)
+                start, end = int(start), int(end if end != "" else 1000)
+                if start < 1 or end < 1 or start > end:
+                    die("Invalid column range: " + part)
+                return (start, end)
+            die("Invalid column: " + part)
+        return ColumnList([_parse(part) for part in s.replace("c", "").split(",")])
 
     def indices(self, width):
 
@@ -189,21 +161,13 @@ class ColumnList:
             return range(r[0], min(r[1], width) + 1)
         return map(lambda x: x - 1, reduce(op.add, [zerobase(r, width) for r in self.ranges]))
 
-    def unique_indices(self, width):
-
-        """
-        Same as indices() but sorted and unique.
-        """
-
+    def uniques(self, width):
+        """Same as indices() but sorted and unique."""
         return sorted(set(self.indices(width)))
 
     def flags(self, width):
-
-        """
-        Return the indices as an array of boolean flags, but no more than the given row width.
-        For the above example this would be [T, T, T, F, T, F, F, T, T, ...]
-        """
-
+        """Return the indices as an array of boolean flags, but no more than the given row width.
+        For the above example this would be [T, T, T, F, T, F, F, T, T, ...]"""
         result = [False] * width
         for i in self.indices(width):
             result[i] = True
@@ -467,7 +431,7 @@ def convert(value, bias=None):
         return value
 
     svalue = strip_commas(value)
-    if bias is not None:
+    if bias is not None and bias != NUMERIC:
         try:
             return bias(svalue)
         except:
@@ -481,6 +445,9 @@ def convert(value, bias=None):
         except:
             pass
 
+    if bias == NUMERIC:
+        return None
+
     m = DATE_YYYYMMDD.match(value)
     if m:
         # TODO: handle multiple date input formats
@@ -490,12 +457,7 @@ def convert(value, bias=None):
 
 
 def make_format(typ, comma=False):
-
-    """
-    Return a formatting function for the indicated type.
-    Numerics will have commas unless overridden.
-    """
-
+    """Return a formatting function for a type; numerics will have commas unless overridden."""
     if typ == float:
         return "{:,.2f}".format if comma else "{:.2f}".format
     elif typ == int:
