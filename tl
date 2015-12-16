@@ -168,10 +168,8 @@ class ColumnList:
     def flags(self, width):
         """Return the indices as an array of boolean flags, but no more than the given row width.
         For the above example this would be [T, T, T, F, T, F, F, T, T, ...]"""
-        result = [False] * width
-        for i in self.indices(width):
-            result[i] = True
-        return result
+        uniques = self.uniques(width)
+        return map(lambda index: index in uniques, range(width))
 
 ####################################################################################################
 
