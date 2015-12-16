@@ -315,7 +315,6 @@ def cum_step(table, colist):
 
 def dup_step(table, colist):
     """Insert a duplicate of the tagged columns in colist."""
-
     table.calc_columns(colist, lambda column: column[:])
 
 def drop_step(table, colist):
@@ -356,27 +355,15 @@ def ord_step(table):
     table.insert_columns([numbers], [0], False)
     
 def redate_step(table, colist, dateformat):
-
     # TODO: comment & test
-
-    rows = list(table.rows)
-    sample = transpose(*rows[:20])
-    columns = colist.indices(len(rows[0]))
     formatter = lambda d: d.strftime(dateformat)
-
-    for index in columns:
-        typ, converter = guess_type(sample[index])
-        if typ == int:
-            for row in rows:
-                row[index] = formatter(datetime.fromtimestamp(int(row[index])))
-        elif typ == date:
-            for row in rows:
-                row[index] = formatter(converter(row[index]))
-        else:
-            die("Can't convert column %d to dates" % index)
-
-    for row in rows:
-        table.write(row)
+    def redate(value):
+        if type(value) == int:
+            return formatter(datetime.fromtimestamp(value))
+        if type(value) == date:
+            return formatter(value)
+        die("Can't treat %s as a date" % value)
+    table.map_columns(colist, redate)
 
 def set_step(table, cmatch):
 
