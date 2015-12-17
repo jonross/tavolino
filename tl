@@ -320,7 +320,7 @@ def redate_step(table, colist, dateformat):
         if type(value) == date:
             return formatter(value)
         die("Can't treat %s as a date" % value)
-    table.map_columns(colist, redate)
+    table.map_columns(colist, lambda column: map(redate, column), [to_int, to_date])
 
 def set_step(table, cmatch):
 
