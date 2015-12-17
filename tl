@@ -1,9 +1,4 @@
 #!/usr/bin/python
-#
-# Keeping everything in memory and running each step as a separate pass over an
-# array is less than efficient, but I haven't had a compelling need for
-# anything more elaborate.  If that arises, add multiprocessing, and have
-# table.rows iterate over the output from the prior step.
 
 from collections import namedtuple
 from datetime import date, datetime, time
@@ -366,6 +361,34 @@ def wiki_step(table):
 
 ####################################################################################################
 
+def to_int(value):
+    """Coerce a value to int, if possible, else return None"""
+    if type(value) == str:
+        if NUMCOMMA in value:
+            value = value.translate(None, NUMCOMMA)
+    try:
+        return int(value)
+    except:
+        return None
+
+def to_float(value):
+    """Coerce a value to float, if possible, else return None"""
+    if type(value) == str:
+        if NUMCOMMA in value:
+            value = value.translate(None, NUMCOMMA)
+    try:
+        return float(value)
+    except:
+        return None
+
+NUMERIC_CONVERTERS = [to_int, to_float]
+
+def convert(value, using=None):
+    """Coerce a value using one of the listed functions (default to_int then to_float)"""
+    if using is None:
+        using = NUMERIC_CONVERTERS
+    return coalesce(f(value) for f in using)
+
 def guess_separators(lines):
 
     """
@@ -403,56 +426,21 @@ def guess_type(column):
 
     column = map(convert, column)
     if all(type(x) == int for x in column):
-        return int, lambda x: convert(x, locale.atoi)
+        return int, lambda x: convert(x, [locale.atoi])
     elif all(type(x) in [float, int] for x in column):
-        return float, lambda x: convert(x, locale.atof)
+        return float, lambda x: convert(x, [locale.atof])
     elif all(type(x) == date for x in column):
         # TODO: handle multiple date input formats
         return date, lambda x: x.strptimetime("%Y-%m-%d")
     else:
         return str, str
 
-def convert(value, bias=None):
-
-    """
-    Intuit the type of a value and convert it.  
-    
-    Anything not a string is returned unchanged; otherwise we try the bias function if
-    specified; otherwise try ints, floats, and some date formats.  Commas are stripped
-    before numeric parsing.
-    """
-
-    if value is None:
-        return None
-
-    if type(value) != str:
-        return value
-
-    svalue = strip_commas(value)
-    if bias is not None and bias != NUMERIC:
-        try:
-            return bias(svalue)
-        except:
-            return value
-
-    try:
-        return locale.atoi(svalue)
-    except:
-        try:
-            return locale.atof(svalue)
-        except:
-            pass
-
-    if bias == NUMERIC:
-        return None
-
+def to_date(value):
     m = DATE_YYYYMMDD.match(value)
     if m:
         # TODO: handle multiple date input formats
         return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-
-    return value
-
+    return None
 
 def make_format(typ, comma=False):
     """Return a formatting function for a type; numerics will have commas unless overridden."""
@@ -469,6 +457,12 @@ def make_format(typ, comma=False):
 def die(message):
     warn(message)
     sys.exit(1)
+
+def coalesce(seq):
+    for item in seq:
+        if item is not None:
+            return item
+    return None
 
 def remap(f, list, value=None):
     v = [list[0]] if value is None else [value]
