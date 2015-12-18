@@ -74,7 +74,7 @@ def main(argv):
     def normalize(row):
         if len(row) < widest:
             # TODO: change this to [None]
-            return row + [""] * (widest - len(row))
+            return row + [None] * (widest - len(row))
         return row
 
     rows = map(normalize, rows)
@@ -87,7 +87,7 @@ def main(argv):
 
     if table.columns and not table.suppress:
         for row in izip(*table.columns):
-            print join_on.join(map(str, row))
+            print join_on.join(map(lambda x: "" if x is None else str(x), row))
 
 ####################################################################################################
 
@@ -102,7 +102,7 @@ class Table:
     def insert_columns(self, newcols, indices, after=True):
         """Insert each column in newcols before / after its corresponding index in a sorted index list"""
         offsets = range(1, len(indices)+1) if after else range(len(indices))
-        for newcol, index in zip(newcols, map(op.add, indices, offsets)):
+        for newcol, index in izip(newcols, map(op.add, indices, offsets)):
             self.columns.insert(index, newcol)
 
     def calc_columns(self, colist, mapper, bias=None):
@@ -240,9 +240,18 @@ def parse_argv(argv, steps=[], options=Options(None, None)):
 
 def delta_step(table, colist):
     """Insert a running delta for each tagged column in colist."""
-    def delta(column):
-        return [a - b for a, b in zip(column, chain([column[0]], column[:-1]))]
-    table.calc_columns(colist, delta)
+    def filldown(seq):
+        lastgood = None
+        for item in seq:
+            if item is not None:
+                lastgood = item
+            yield lastgood
+    def delta(a, b):
+        return 0 if a is None or b is None else a - b
+    def deltas(column):
+        column = list(filldown(column))
+        return [delta(a,b) for a, b in izip(column, chain([column[0]], column[:-1]))]
+    table.calc_columns(colist, deltas)
 
 def ema_step(table, colist, k):
     """Insert a running exponential moving average for each tagged column in colist."""
@@ -303,7 +312,7 @@ def neat_step(table):
         return [spacer(item, maxwidth) for item in column]
 
     table.suppress = True
-    for row in zip(*map(neaten, table.columns)):
+    for row in izip(*map(neaten, table.columns)):
         print "  ".join(row)
 
 def ord_step(table):
@@ -356,7 +365,7 @@ def wiki_step(table):
         return column
 
     table.suppress = True
-    for row in zip(*map(neaten, table.columns)):
+    for row in izip(*map(neaten, table.columns)):
         print "| " + " | ".join(row) + " |"
 
 ####################################################################################################
