@@ -247,7 +247,7 @@ def delta_step(table, colist):
 def ema_step(table, colist, k):
     """Insert a running exponential moving average for each tagged column in colist."""
     def ema(prev, curr):
-        return ((k - 1) * prev + curr) * 1.0 / k
+        return prev if curr is None else ((k - 1) * prev + curr) * 1.0 / k
     table.calc_columns(colist, lambda column: remap(ema, column))
 
 def per_step(table, colist):
@@ -406,7 +406,7 @@ def guess_separators(lines):
         return PSQL_SEPARATOR.split, "\t"
 
     def allsame(array):
-        return array[0] > 0 and all(map(lambda n: n == array[0], array))
+        return array[0] > 0 and all(n == array[0] for n in array)
 
     for sep in ["|", "\t", ","]:
         if allsame([line.count(sep) for line in lines]):
@@ -454,11 +454,17 @@ def make_format(typ, comma=False):
 
 ####################################################################################################
 
+def warn(message):
+    """Like perl's warn"""
+    sys.stderr.write(message + "\n")
+
 def die(message):
+    """Like perl's die"""
     warn(message)
     sys.exit(1)
 
 def coalesce(seq):
+    """Return the first non-None item in a sequence, else None"""
     for item in seq:
         if item is not None:
             return item
@@ -470,12 +476,6 @@ def remap(f, list, value=None):
         v[0] = f(v[0], x)
         return v[0]
     return map(f2, list)
-
-def strip_commas(value):
-    return value.translate(None, NUMCOMMA) if NUMCOMMA in value else value
-
-def warn(message):
-    sys.stderr.write(message + "\n")
 
 ####################################################################################################
 
