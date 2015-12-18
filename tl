@@ -262,9 +262,9 @@ def ema_step(table, colist, k):
 def per_step(table, colist):
     """For each column in colist, calculate and insert its percent of the total value for that column."""
     def percent(column):
-        total = sum(column)
+        total = sum(filter(notnone, column))
         if total > 0:
-            return [item * 1.0 / total * 100 for item in column]
+            return [(0 if item is None else (item * 1.0 / total * 100)) for item in column]
         else:
             return [0 for item in column]
     table.calc_columns(colist, percent)
@@ -471,6 +471,9 @@ def die(message):
     """Like perl's die"""
     warn(message)
     sys.exit(1)
+
+def notnone(x):
+    return x is not None
 
 def coalesce(seq):
     """Return the first non-None item in a sequence, else None"""
