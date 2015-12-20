@@ -2,7 +2,7 @@
 
 from collections import namedtuple
 from datetime import date, datetime, time
-from itertools import chain, imap, izip
+from itertools import chain, imap, izip, ifilter, tee
 import locale
 import operator as op
 import re
@@ -240,17 +240,10 @@ def parse_argv(argv, steps=[], options=Options(None, None)):
 
 def delta_step(table, colist):
     """Insert a running delta for each tagged column in colist."""
-    def filldown(seq):
-        lastgood = None
-        for item in seq:
-            if item is not None:
-                lastgood = item
-            yield lastgood
-    def delta(a, b):
-        return 0 if a is None or b is None else a - b
     def deltas(column):
-        column = list(filldown(column))
-        return [delta(a,b) for a, b in izip(column, chain([column[0]], column[:-1]))]
+        first = 0 if column[0] is None else column[0]
+        filled = ((b if b is not None else a) for a, b in with_prev(column, first))
+        return [b - a for a, b in with_prev(filled, first)]
     table.calc_columns(colist, deltas)
 
 def ema_step(table, colist, k):
@@ -464,11 +457,9 @@ def make_format(typ, comma=False):
 ####################################################################################################
 
 def warn(message):
-    """Like perl's warn"""
     sys.stderr.write(message + "\n")
 
 def die(message):
-    """Like perl's die"""
     warn(message)
     sys.exit(1)
 
@@ -476,11 +467,15 @@ def notnone(x):
     return x is not None
 
 def coalesce(seq):
-    """Return the first non-None item in a sequence, else None"""
-    for item in seq:
-        if item is not None:
-            return item
-    return None
+    return next(ifilter(notnone, iter(seq)), None)
+
+def pairwise(seq):
+    a, b = tee(seq)
+    next(b, None)
+    return izip(a, b)
+
+def with_prev(seq, first_prev=None):
+    return pairwise(chain([first_prev], seq))
 
 def remap(f, list, value=None):
     v = [list[0]] if value is None else [value]
