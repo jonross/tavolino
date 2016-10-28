@@ -74,90 +74,95 @@ def main(argv):
 
     # Transpose to columns & run steps, then back to rows for output.
 
-    table = Table(zip(*rows))
+    table = Table([list(c) for c in zip(*rows)])
     for step in steps:
         step(table)
 
     if table.columns and not table.suppress:
-        for row in izip(*table.columns):
+        for row in izip(*(column.data for column in table.columns)):
             print join_on.join(map(lambda x: "" if x is None else str(x), row))
 
 ####################################################################################################
 
-class Table:
+class Column:
 
-    def __init__(self, columns):
-        self.columns = columns
-        self.width = len(columns)
-        # Suppress final output (if a step has done custom output)
-        self.suppress = False
+    def __init__(self, data):
+        # Array of column values
+        self.data = data
+        # User-addressible name like "c3" or "Sales"
+        self.name = None
+        # Column has an automatic name like "c3", not explicit like "Sales"
+        self.auto = True
 
-    def insert_columns(self, newcols, indices, after=True):
-        """Insert each column in newcols before / after its corresponding index in a sorted index list"""
-        offsets = range(1, len(indices)+1) if after else range(len(indices))
-        for newcol, index in izip(newcols, map(op.add, indices, offsets)):
-            self.columns.insert(index, newcol)
-
-    def calc_columns(self, colist, mapper, bias=None):
-        """Like insert_columns but works by mapping a function over an existing column set."""
-        indices = colist.uniques(self.width)
-        inputs = [[convert(value, bias) for value in self.columns[i]] for i in indices]
-        self.insert_columns([mapper(column) for column in inputs], indices)
-
-    def map_columns(self, colist, mapper, bias=None):
-        """Like calc_columns but overwrites the target columns."""
-        for i in colist.uniques(self.width):
-            self.columns[i] = mapper([convert(value, bias) for value in self.columns[i]])
-
-class ColumnList:
-
-    """
-    Represents a list of columns indexed, possibly with unbounded end points,
-    e.g. 1-3,5,8-
-    When returned to callers these are zero-based for use in lists.
-    """
-
-    def __init__(self, ranges):
-        """ For the above example, this would contain [(1, 3), (5, 5), (8, 1000)]"""
-        self.ranges = ranges
+    def clone(self):
+        return Column(self.data[:])
 
     @classmethod
-    def from_string(cls, s):
+    def names_from(cls, s):
+        """Given comma-separate column ranges e.g. 1-3,5,8-
+        return e.g. ["c1", "c2", "c3", "c5", "c8", "c9", ..., "c100" ]"""
         def _parse(part):
             if INTEGER.match(part):
                 index = int(part)
                 if index < 1:
                     die("Invalid column index " + part)
-                return (index, index)
+                return ["c%d" % index]
             if RANGE.match(part):
                 start, end = part.split("-")
-                start, end = int(start), int(end if end != "" else 1000)
+                start, end = int(start), int(end if end != "" else 100)
                 if start < 1 or end < 1 or start > end:
                     die("Invalid column range: " + part)
-                return (start, end)
+                return ["c%d" % index for index in range(start, end + 1)]
             die("Invalid column: " + part)
-        return ColumnList([_parse(part) for part in s.replace("c", "").split(",")])
+        return reduce(op.add, (_parse(part) for part in s.replace("c", "").split(",")))
 
-    def indices(self, width):
+class Table:
 
-        """
-        Return an actual list of indices in the original order, but no more than the the given
-        row width.  For the above exaple this would be [0, 1, 2, 4, 7, 8, ...]
-        """
+    def __init__(self, columns):
+        self.columns = [self._wrap(c) for c in columns]
+        # Column count
+        self.width = None
+        # Suppress final output (if a step has done custom output)
+        self.suppress = False
+        # Call this after every modification to .columns
+        self.reset()
 
-        def zerobase(r, width):
-            return range(r[0], min(r[1], width) + 1)
-        return map(lambda x: x - 1, reduce(op.add, [zerobase(r, width) for r in self.ranges]))
+    def reset(self):
+        self.width = len(self.columns)
+        for index, column in enumerate(self.columns):
+            if column.auto:
+                column.name = "c%d" % (index + 1)
 
-    def uniques(self, width):
-        """Same as indices() but sorted and unique."""
-        return sorted(set(self.indices(width)))
+    def get_named(self, name, demand=True):
+        index = self.index_of(name)
+        if index is not None:
+            return self.columns[index]
+        if not demand:
+            return None
+        die("No column named " + name)
 
-    def flags(self, width):
-        """Return the indices as an array of boolean flags, but no more than the given row width.
-        For the above example this would be [T, T, T, F, T, F, F, T, T, ...]"""
-        uniques = self.uniques(width)
-        return map(lambda index: index in uniques, range(width))
+    def index_of(self, thing):
+        for index, column in enumerate(self.columns):
+            if type(thing) == str and column.name == thing:
+                return index
+            if thing == column:
+                return index
+        return None
+
+    def prepend(self, column):
+        self.columns.insert(0, self._wrap(column))
+        self.reset()
+
+    def insert_after(self, column, new_column):
+        self.columns.insert(1 + self.index_of(column), self._wrap(new_column))
+        self.reset()
+
+    def replace_with(self, column, new_column):
+        self.columns[self.index_of(column)] = self._wrap(new_column)
+        self.reset()
+
+    def _wrap(self, thing):
+        return Column(thing) if type(thing) == list else thing
 
 ####################################################################################################
 
@@ -174,19 +179,19 @@ def silent(f):
     return wrapped
 
 ARG_SPECS = {
-    "cum":      [("column expression", ColumnList.from_string)],
-    "delta":    [("column expression", ColumnList.from_string)],
-    "drop":     [("column expression", ColumnList.from_string)],
-    "dup":      [("column expression", ColumnList.from_string)],
-    "ema":      [("column expression", ColumnList.from_string), 
+    "cum":      [("column expression", Column.names_from)],
+    "delta":    [("column expression", Column.names_from)],
+    "drop":     [("column expression", Column.names_from)],
+    "dup":      [("column expression", Column.names_from)],
+    "ema":      [("column expression", Column.names_from), 
                  ("EMA period", silent(int))],
-    "keep":     [("column expression", ColumnList.from_string)],
+    "keep":     [("column expression", Column.names_from)],
     "neat":     [],
     "ord":      [],
-    "per":      [("column expression", ColumnList.from_string)],
-    "redate":   [("column expression", ColumnList.from_string), 
+    "per":      [("column expression", Column.names_from)],
+    "redate":   [("column expression", Column.names_from), 
                  ("date format", str)],
-    "round":    [("column expression", ColumnList.from_string),
+    "round":    [("column expression", Column.names_from),
                  ("# of places", silent(int))],
     "set":      [("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match)],
     "wiki":     []
@@ -215,7 +220,7 @@ def parse_argv(argv, steps=[], options=Options(None, None)):
         specs = ARG_SPECS.get(arg)
         if specs is None:
             die("Unknown step: " + arg)
-        step_fn = eval(arg + "_step")
+        step_fn = eval("do_" + arg)
         step_args = []
         for description, converter in specs:
             if len(argv) == 0:
@@ -261,41 +266,43 @@ def round_step(table, colist, places):
         return map(lambda value: round(float(value), places), column)
     table.map_columns(colist, doround)
 
-def cum_step(table, colist):
+def do_cum(table, names):
     """Insert a running sum for each tagged column in colist."""
-    table.calc_columns(colist, lambda column: remap(op.add, column, 0))
+    for column in map(table.get_named, names):
+        table.insert_after(column, remap(op.add, map(convert, column.data), 0))
 
 def dup_step(table, colist):
     """Insert a duplicate of the tagged columns in colist."""
     table.calc_columns(colist, lambda column: column[:])
 
-def drop_step(table, colist):
-    """Remove the designated columns."""
-    flags = colist.flags(table.width)
-    table.columns = [column for i, column in enumerate(table.columns) if not flags[i]]
+def do_drop(table, names):
+    names = set(names)
+    table.columns = [column for column in table.columns if column.name not in names]
+    table.reset()
 
-def keep_step(table, colist):
-    """Remove all but the designated columns.  Note, this is not simply the opposite of 
-    drop_columns, since the order may be changed e.g.: keep 3,2,1
-    """
-    indices = colist.indices(table.width)
-    table.columns = [table.columns[i][:] for i in indices]
+def do_keep(table, names):
+    """Note, this is not simply the opposite of do_drop, since the order may be changed 
+    and duplicates created, e.g. keep 3,2,2,1"""
+    found = ifilter(None, (table.get_named(name, False) for name in names))
+    table.columns = [column.clone() for column in found]
+    table.reset()
 
-def neat_step(table):
+def do_neat(table):
     """Generate easily readable text output.  Try to guess column types to improve formatting.
     This can only be the final step in the list.
     """
 
     def neaten(column):
-        kind, converter = guess_type(column[:20])
+        kind, converter = guess_type(column.data[:20])
         if kind in [int, float]:
             formatter = make_format(kind, True)
-            column = map(lambda cell: formatter(converter(cell)), column)
+            data = map(lambda cell: formatter(converter(cell)), column.data)
             spacer = str.rjust
         else:
             spacer = str.ljust
-        maxwidth = max(map(len, column))
-        return [spacer(item, maxwidth) for item in column]
+            data = column.data
+        maxwidth = max(map(len, data))
+        return [spacer(item, maxwidth) for item in data]
 
     table.suppress = True
     for row in izip(*map(neaten, table.columns)):
@@ -334,21 +341,18 @@ def set_step(table, cmatch):
         row[target] = setter(row)
         table.write(row)
 
-def wiki_step(table):
+def do_wiki(table):
 
-    """
-    Generate output suitable for Twiki or Confluence.
-    Try to guess column types to improve formatting.
-    This can only be the final step in the list.
-    """
+    """Generate output suitable for Twiki or Confluence.  Try to guess column types to improve formatting.
+    This can only be the final step in the list."""
 
     def neaten(column):
-        kind, converter = guess_type(column[:20])
+        kind, converter = guess_type(column.data[:20])
         if kind in [int, float]:
             formatter = make_format(kind, True)
             # provide leading space to right-justify numbers
-            return [" " + formatter(converter(item)) for item in column]
-        return column
+            return [" " + formatter(converter(item)) for item in column.data]
+        return column.data
 
     table.suppress = True
     for row in izip(*map(neaten, table.columns)):
