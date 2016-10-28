@@ -20,10 +20,6 @@ RANGE = re.compile("^(\d+)-(\d*)$")
 RANGES = re.compile("^[0-9-]+(,[0-9-]+)*$")
 # How to recognize a date a la 2015-04-01
 DATE_YYYYMMDD = re.compile("^(\d\d\d\d)-(\d\d)-(\d\d)$")
-# How to recognize tabular Postgres output
-PSQL_GUTTER = re.compile(r"(\t|    )\| \S")
-# How to split tabular Postgres output
-PSQL_SEPARATOR = re.compile(r"\s+\| ")
 
 # Command-line synonyms for common field separators
 SEPARATOR_NAMES = { "csv" : ",", "psv" : "|", "ssv" : " ", "tsv" : "\t" }
@@ -403,9 +399,6 @@ def guess_separators(lines):
 
     if len(lines) == 0:
         return WHITESPACE.split, "\t"
-
-    if all(PSQL_GUTTER.search(line) for line in lines):
-        return PSQL_SEPARATOR.split, "\t"
 
     def allsame(array):
         return array[0] > 0 and all(n == array[0] for n in array)
