@@ -10,15 +10,15 @@ import sys
 
 ####################################################################################################
 
-# Matches any run of whitespace
+# Match any run of whitespace
 WHITESPACE = re.compile(r"\s+")
-# Matches a string containing only an integer, with no whitespace
+# Match a string containing only an integer, with no whitespace
 INTEGER = re.compile("^\d+$")
-# Matches e.g. "1-3" or "8-"
+# Match e.g. "1-3" or "8-"
 RANGE = re.compile("^(\d+)-(\d*)$")
-# Matches e.g. "1-3,5,8-"
+# Match e.g. "1-3,5,8-"
 RANGES = re.compile("^[0-9-]+(,[0-9-]+)*$")
-# How to recognize a date a la 2015-04-01
+# Match a date in YYYY-MM-DD format
 DATE_YYYYMMDD = re.compile("^(\d\d\d\d)-(\d\d)-(\d\d)$")
 
 # Command-line synonyms for common field separators
@@ -26,9 +26,6 @@ SEPARATOR_NAMES = { "csv" : ",", "psv" : "|", "ssv" : " ", "tsv" : "\t" }
 
 # Holds information from the command line other than step functions
 Options = namedtuple("Options", "split_on join_on")
-
-# A type conversion indicator that means either int or float
-NUMERIC = object()
 
 # Are numbers like "1,000.00" or "1.000,00"
 locale.setlocale(locale.LC_ALL, "")
