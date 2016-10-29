@@ -84,39 +84,60 @@ def main(argv):
 
 ####################################################################################################
 
+class Targets:
+
+    """Designates columns to affect.  Parsed from a string like "c1-3,5,8-", which has "explicit"
+    columns c1,c2,c3,c5,c8 (which must exist in the table) and "implicit" columns c9 onward, which
+    are optional."""
+
+    def __init__(self, explicit, implicit):
+        self.explicit = explicit
+        self.implicit = implicit
+
+    @classmethod
+    def parse(cls, s):
+        def _parse(part):
+            # Match e.g. "c5"
+            if INTEGER.match(part):
+                index = int(part)
+                if index < 1:
+                    die("Invalid column index " + part)
+                return (["c%d" % index], None)
+            # Match e.g. "c1-3" or "c8-"
+            if RANGE.match(part):
+                start, end = part.split("-")
+                start, end = int(start), int(end if end != "" else 10000)
+                if start < 1 or end < 1 or start > end:
+                    die("Invalid column range: " + part)
+                if end == 10000:
+                    return (["c%d" % start], start + 1)
+                return (["c%d" % i for i in range(start, end + 1)], None)
+            die("Invalid column: " + part)
+        explicit, implicit = [], None
+        for ex, im in (_parse(part) for part in s.replace("c", "").split(",")):
+            explicit += ex
+            if implicit is None or im is not None:
+                implicit = im
+        return Targets(explicit, implicit)
+
 class Column:
+
+    """A Table, below, is made up of these (obviously)"""
 
     def __init__(self, data):
         # Array of column values
         self.data = data
         # User-addressible name like "c3" or "Sales"
         self.name = None
-        # Column has an automatic name like "c3", not explicit like "Sales"
+        # Column has an automatic name like "c3", not user-defined like "Sales"
         self.auto = True
 
     def clone(self):
         return Column(self.data[:])
 
-    @classmethod
-    def names_from(cls, s):
-        """Given comma-separate column ranges e.g. 1-3,5,8-
-        return e.g. ["c1", "c2", "c3", "c5", "c8", "c9", ..., "c100" ]"""
-        def _parse(part):
-            if INTEGER.match(part):
-                index = int(part)
-                if index < 1:
-                    die("Invalid column index " + part)
-                return ["c%d" % index]
-            if RANGE.match(part):
-                start, end = part.split("-")
-                start, end = int(start), int(end if end != "" else 100)
-                if start < 1 or end < 1 or start > end:
-                    die("Invalid column range: " + part)
-                return ["c%d" % index for index in range(start, end + 1)]
-            die("Invalid column: " + part)
-        return reduce(op.add, (_parse(part) for part in s.replace("c", "").split(",")))
-
 class Table:
+
+    """A set of Columns, above (obviously)"""
 
     def __init__(self, columns):
         self.columns = [self._wrap(c) for c in columns]
@@ -133,6 +154,12 @@ class Table:
             if column.auto:
                 column.name = "c%d" % (index + 1)
 
+    def select(self, targets):
+        result = [self.get_named(name) for name in targets.explicit]
+        if targets.implicit:
+            result += [self.columns[i] for i in range(targets.implicit - 1, self.width)]
+        return result
+        
     def get_named(self, name, demand=True):
         index = self.index_of(name)
         if index is not None:
@@ -149,19 +176,15 @@ class Table:
                 return index
         return None
 
-    def prepend(self, column):
-        self.columns.insert(0, self._wrap(column))
-        self.reset()
-
     def insert_after(self, column, new_column):
         self.columns.insert(1 + self.index_of(column), self._wrap(new_column))
         self.reset()
 
-    def derive(self, names, function, overwrite=False):
+    def derive(self, targets, function, overwrite=False):
         """For each of the named columns, calculate a new column by applying the function to its
         values.  Optionally overwrite the existing column."""
         insert = self.replace_with if overwrite else self.insert_after
-        for column in map(self.get_named, names):
+        for column in self.select(targets):
             insert(column, function(map(convert, column.data)))
 
     def replace_with(self, column, new_column):
@@ -186,19 +209,19 @@ def silent(f):
     return wrapped
 
 ARG_SPECS = {
-    "cum":      [("column expression", Column.names_from)],
-    "delta":    [("column expression", Column.names_from)],
-    "drop":     [("column expression", Column.names_from)],
-    "dup":      [("column expression", Column.names_from)],
-    "ema":      [("column expression", Column.names_from), 
+    "cum":      [("column expression", Targets.parse)],
+    "delta":    [("column expression", Targets.parse)],
+    "drop":     [("column expression", Targets.parse)],
+    "dup":      [("column expression", Targets.parse)],
+    "ema":      [("column expression", Targets.parse), 
                  ("EMA period", silent(int))],
-    "keep":     [("column expression", Column.names_from)],
+    "keep":     [("column expression", Targets.parse)],
     "neat":     [],
     "ord":      [],
-    "per":      [("column expression", Column.names_from)],
-    "redate":   [("column expression", Column.names_from), 
+    "per":      [("column expression", Targets.parse)],
+    "redate":   [("column expression", Targets.parse), 
                  ("date format", str)],
-    "round":    [("column expression", Column.names_from),
+    "round":    [("column expression", Targets.parse),
                  ("# of places", silent(int))],
     "set":      [("cN=EXPRESSION", re.compile("^c(\d+)=(.+)").match)],
     "wiki":     []
@@ -243,12 +266,12 @@ def parse_argv(argv, steps=[], options=Options(None, None)):
 
 ####################################################################################################
 
-def do_delta(table, names):
+def do_delta(table, targets):
     def deltas(data):
         first = 0 if data[0] is None else data[0]
         filled = ((b if b is not None else a) for a, b in with_prev(data, first))
         return [b - a for a, b in with_prev(filled, first)]
-    table.derive(names, deltas)
+    table.derive(targets, deltas)
 
 def do_ema(table, names, k):
     """Insert a running exponential moving average for each tagged column in colist."""
@@ -256,36 +279,35 @@ def do_ema(table, names, k):
         return prev if curr is None else ((k - 1) * prev + curr) * 1.0 / k
     table.derive(names, lambda data: remap(ema, data))
 
-def do_per(table, names):
+def do_per(table, targets):
     def percent(data):
         total = sum(filter(notnone, data))
         if total > 0:
             return [(0 if item is None else (item * 1.0 / total * 100)) for item in data]
         else:
             return [0 for item in data]
-    table.derive(names, percent)
+    table.derive(targets, percent)
 
 def do_round(table, names, places):
     def _round(column):
         return map(lambda value: round(float(value), places), column)
     table.derive(names, _round, True)
 
-def do_cum(table, names):
-    table.derive(names, lambda data: remap(op.add, data, 0))
+def do_cum(table, targets):
+    table.derive(targets, lambda data: remap(op.add, data, 0))
 
-def do_dup(table, names):
-    table.derive(names, lambda data: Column(data[:]))
+def do_dup(table, targets):
+    table.derive(targets, lambda data: Column(data[:]))
 
-def do_drop(table, names):
-    names = set(names)
-    table.columns = [column for column in table.columns if column.name not in names]
+def do_drop(table, targets):
+    dropped = set(table.select(targets))
+    table.columns = [column for column in table.columns if column not in dropped]
     table.reset()
 
-def do_keep(table, names):
+def do_keep(table, targets):
     """Note, this is not simply the opposite of do_drop, since the order may be changed 
     and duplicates created, e.g. keep 3,2,2,1"""
-    found = ifilter(None, (table.get_named(name, False) for name in names))
-    table.columns = [column.clone() for column in found]
+    table.columns = [column.clone() for column in table.select(targets)]
     table.reset()
 
 def do_neat(table):

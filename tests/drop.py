@@ -7,8 +7,6 @@ test("""bad drop arg""", """drop x""", PS, """""", """
 Invalid column: x
 """)
 
-test("""no-op drop""", """drop 99""", PS, PSOUT, """""")
-
 test("""drop two""", """drop 2,4""", PS, """
 UID	PPID	STIME	TTY	TIME	CMD
 0	0	22Oct14	??	25:02.89	/sbin/launchd
