@@ -43,7 +43,8 @@ def main(argv):
     if len(lines) == 0:
         sys.exit(0)
 
-    # Determine how to split lines; default for joining them is how we split them...
+    # Determine how to split lines.  The default for joining them is how we split them, unless
+    # we were told how to join them.
 
     if options.split_on == " ":
         splitter = WHITESPACE.split
@@ -53,8 +54,6 @@ def main(argv):
         join_on = options.split_on
     else:
         splitter, join_on = guess_separators(lines[:10])
-
-    # ... unless were were told how to join them.
 
     if options.join_on is not None:
         join_on = options.join_on
@@ -66,7 +65,6 @@ def main(argv):
 
     def normalize(row):
         if len(row) < widest:
-            # TODO: change this to [None]
             return row + [None] * (widest - len(row))
         return row
 
@@ -160,12 +158,10 @@ class Table:
             result += [self.columns[i] for i in range(targets.implicit - 1, self.width)]
         return result
         
-    def get_named(self, name, demand=True):
+    def get_named(self, name):
         index = self.index_of(name)
         if index is not None:
             return self.columns[index]
-        if not demand:
-            return None
         die("No column named " + name)
 
     def index_of(self, thing):
@@ -331,10 +327,11 @@ def do_neat(table):
     for row in izip(*map(neaten, table.columns)):
         print "  ".join(row)
 
-def ord_step(table):
+def do_ord(table):
     """Add an ordinal value (1-based) to the beginning of every line."""
-    numbers = range(1, len(table.columns[0])+1)
-    table.insert_columns([numbers], [0], False)
+    numbers = range(1, len(table.columns[0].data)+1)
+    table.columns.insert(0, Column(numbers))
+    table.reset()
     
 def redate_step(table, colist, dateformat):
     # TODO: comment & test
