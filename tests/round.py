@@ -15,8 +15,6 @@ test("""bad round arg 2""", """round 1 x""", PS, """""", """
 Expected # of places but got x
 """)
 
-test("""round absent column""", """round 99 1""", PS, PSOUT, """""")
-
 test("""round 2 places""", """csv round 2 2""", """
 1.123,1.123,1.123
 2.246,2.246,2.246

@@ -15,8 +15,6 @@ test("""bad ema arg 2""", """ema 1 x""", PS, """""", """
 Expected EMA period but got x
 """)
 
-test("""ema absent column""", """ema 99 1""", PS, PSOUT, """""")
-
 test("""ema""", """csv ema 1 4""", """
 0
 8

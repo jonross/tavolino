@@ -157,6 +157,13 @@ class Table:
         self.columns.insert(1 + self.index_of(column), self._wrap(new_column))
         self.reset()
 
+    def derive(self, names, function, overwrite=False):
+        """For each of the named columns, calculate a new column by applying the function to its
+        values.  Optionally overwrite the existing column."""
+        insert = self.replace_with if overwrite else self.insert_after
+        for column in map(self.get_named, names):
+            insert(column, function(map(convert, column.data)))
+
     def replace_with(self, column, new_column):
         self.columns[self.index_of(column)] = self._wrap(new_column)
         self.reset()
@@ -236,44 +243,38 @@ def parse_argv(argv, steps=[], options=Options(None, None)):
 
 ####################################################################################################
 
-def delta_step(table, colist):
-    """Insert a running delta for each tagged column in colist."""
-    def deltas(column):
-        first = 0 if column[0] is None else column[0]
-        filled = ((b if b is not None else a) for a, b in with_prev(column, first))
+def do_delta(table, names):
+    def deltas(data):
+        first = 0 if data[0] is None else data[0]
+        filled = ((b if b is not None else a) for a, b in with_prev(data, first))
         return [b - a for a, b in with_prev(filled, first)]
-    table.calc_columns(colist, deltas)
+    table.derive(names, deltas)
 
-def ema_step(table, colist, k):
+def do_ema(table, names, k):
     """Insert a running exponential moving average for each tagged column in colist."""
     def ema(prev, curr):
         return prev if curr is None else ((k - 1) * prev + curr) * 1.0 / k
-    table.calc_columns(colist, lambda column: remap(ema, column))
+    table.derive(names, lambda data: remap(ema, data))
 
-def per_step(table, colist):
-    """For each column in colist, calculate and insert its percent of the total value for that column."""
-    def percent(column):
-        total = sum(filter(notnone, column))
+def do_per(table, names):
+    def percent(data):
+        total = sum(filter(notnone, data))
         if total > 0:
-            return [(0 if item is None else (item * 1.0 / total * 100)) for item in column]
+            return [(0 if item is None else (item * 1.0 / total * 100)) for item in data]
         else:
-            return [0 for item in column]
-    table.calc_columns(colist, percent)
+            return [0 for item in data]
+    table.derive(names, percent)
 
-def round_step(table, colist, places):
-    """For each column in colist, round its values to N places."""
-    def doround(column):
+def do_round(table, names, places):
+    def _round(column):
         return map(lambda value: round(float(value), places), column)
-    table.map_columns(colist, doround)
+    table.derive(names, _round, True)
 
 def do_cum(table, names):
-    """Insert a running sum for each tagged column in colist."""
-    for column in map(table.get_named, names):
-        table.insert_after(column, remap(op.add, map(convert, column.data), 0))
+    table.derive(names, lambda data: remap(op.add, data, 0))
 
-def dup_step(table, colist):
-    """Insert a duplicate of the tagged columns in colist."""
-    table.calc_columns(colist, lambda column: column[:])
+def do_dup(table, names):
+    table.derive(names, lambda data: Column(data[:]))
 
 def do_drop(table, names):
     names = set(names)
