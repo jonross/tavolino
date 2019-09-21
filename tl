@@ -133,47 +133,47 @@ class Column:
     def clone(self):
         return Column(self.data[:])
 
+    @classmethod
+    def wrap(cls, thing):
+        return Column(thing) if type(thing) == list else thing
+
 class Table:
 
     """A set of Columns, above (obviously)"""
 
     def __init__(self, columns):
-        self.columns = [self._wrap(c) for c in columns]
-        # Column count
-        self.width = None
+        self.columns = [Column.wrap(c) for c in columns]
         # Suppress final output (if a step has done custom output)
         self.suppress = False
-        # Call this after every modification to .columns
         self.reset()
 
-    def reset(self):
-        self.width = len(self.columns)
-        for index, column in enumerate(self.columns):
-            if column.auto:
-                column.name = "c%d" % (index + 1)
-
     def select(self, targets):
-        result = [self.get_named(name) for name in targets.explicit]
+        result = [self.columns[self.index_of(name, True)] for name in targets.explicit]
         if targets.implicit:
             result += [self.columns[i] for i in range(targets.implicit - 1, self.width)]
         return result
         
-    def get_named(self, name):
-        index = self.index_of(name)
-        if index is not None:
-            return self.columns[index]
-        die("No column named " + name)
-
-    def index_of(self, thing):
+    def index_of(self, thing, must_find=False):
+        """Return the index of either a column name or the column object itself."""
         for index, column in enumerate(self.columns):
             if type(thing) == str and column.name == thing:
                 return index
             if thing == column:
                 return index
+        if must_find:
+            die("No column named " + thing)
         return None
 
     def insert_after(self, column, new_column):
-        self.columns.insert(1 + self.index_of(column), self._wrap(new_column))
+        """Insert a new column after an existing one, specified either by the name or the
+        column object itself."""
+        self.columns.insert(1 + self.index_of(column), Column.wrap(new_column))
+        self.reset()
+
+    def replace_with(self, column, new_column):
+        """Insert a new column after an existing one, specified either by the name or the
+        column object itself."""
+        self.columns[self.index_of(column)] = Column.wrap(new_column)
         self.reset()
 
     def derive(self, targets, function, overwrite=False):
@@ -183,12 +183,13 @@ class Table:
         for column in self.select(targets):
             insert(column, function(map(convert, column.data)))
 
-    def replace_with(self, column, new_column):
-        self.columns[self.index_of(column)] = self._wrap(new_column)
-        self.reset()
-
-    def _wrap(self, thing):
-        return Column(thing) if type(thing) == list else thing
+    def reset(self):
+        """Re-establish width and automatic column names after a change that does not use table
+        builtins like insert_after(), replace_with() or derive()."""
+        self.width = len(self.columns)
+        for index, column in enumerate(self.columns):
+            if column.auto:
+                column.name = "c%d" % (index + 1)
 
 ####################################################################################################
 

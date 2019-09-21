@@ -14,7 +14,7 @@ def test(name, args, input, expected_stdout, expected_stderr):
     if len(NAMES) and name not in NAMES:
         return
 
-    p = Popen(["tl"] + args.split(" "), stdin=PIPE, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+    p = Popen(["./tl"] + args.split(" "), stdin=PIPE, stdout=PIPE, stderr=PIPE, universal_newlines=True)
     stdout, stderr = p.communicate(input.lstrip())
     global nerrors
 
