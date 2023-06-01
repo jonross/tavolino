@@ -14,13 +14,6 @@ def test(name, args, input, expected_stdout, expected_stderr):
     if len(NAMES) and name not in NAMES:
         return
 
-    p = Popen(["tl"] + args.split(" "), stdin=PIPE, stdout=PIPE, stderr=PIPE, universal_newlines=True)
-    stdout, stderr = p.communicate(input.lstrip())
-    global nerrors
-
-    expected_stdout = expected_stdout.lstrip()
-    expected_stderr = expected_stderr.lstrip()
-
     if stdout != expected_stdout:
         print "Wrong output for 'tl " + args + "' (" + name + ") expected:"
         print expected_stdout,
