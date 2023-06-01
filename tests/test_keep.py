@@ -1,35 +1,26 @@
 import pytest
-import subprocess as sub
 
-def test_missing_keep_arg():
-    run("keep", stderr="Missing argument, expected column expression")
+def test_missing_arg(utils):
+    utils.run("keep", stderr="Missing argument, expected column expression\n")
 
-def test_keep_invalid_column():
-    run("keep x", stderr="Invalid column: x")
+def test_invalid_column(utils):
+    utils.run("keep x", stderr="Invalid column: x\n")
 
-def test_keep_all_columns(long_ps, long_ps_out):
-    run("keep 1-", stdin=long_ps, stdout=long_ps_out)
+def test_all_columns(utils, long_ps, long_ps_tsv):
+    utils.run("keep 1-", stdin=long_ps, stdout=long_ps_tsv)
 
-def norm_ws(s):
-    return s.strip() + "\n"
-
-def run(args, stdin="", stdout="", stderr=""):
-    p = sub.Popen(["tl"] + args.split(" "), stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE, universal_newlines=True)
-    actual_stdout, actual_stderr = map(norm_ws, p.communicate(stdin.lstrip()))
-    expected_stdout, expected_stderr = map(norm_ws, [stdout, stderr])
-    assert actual_stdout == expected_stdout
-    assert actual_stderr == expected_stderr
+def test_flip(utils, short_ps):
+    utils.run("keep 2,1", stdin=short_ps, stdout="""
+        PID	UID
+        11	0
+        12	0
+        14	0
+    """)
 
 if False:
 
-    test("""keep all""", """keep 1-""", PS, PSOUT, """""")
-
     test("""keep flip""", """keep 2,1""", PS, """
-    PID	UID
     1	0
-    11	0
-    12	0
-    14	0
     15	0
     16	0
     17	0
