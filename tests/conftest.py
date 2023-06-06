@@ -4,7 +4,7 @@ import subprocess as sub
 @pytest.fixture
 def run():
     def _run(args, stdin="", stdout="", stderr=""):
-        p = sub.Popen(["tl"] + args.split(" "), stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE, universal_newlines=True)
+        p = sub.Popen(["./tl"] + args.split(" "), stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE, universal_newlines=True)
         actual_stdout, actual_stderr = map(norm_ws, p.communicate(stdin.lstrip()))
         expected_stdout, expected_stderr = map(norm_ws, [stdout, stderr])
         assert actual_stderr == expected_stderr
