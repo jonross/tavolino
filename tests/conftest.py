@@ -5,7 +5,7 @@ import subprocess as sub
 def run():
     def _run(args, stdin="", stdout="", stderr=""):
         p = sub.Popen(["./tl"] + args.split(" "), stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE, universal_newlines=True)
-        actual_stdout, actual_stderr = map(norm_ws, p.communicate(stdin.lstrip()))
+        actual_stdout, actual_stderr = map(norm_ws, p.communicate(stdin.strip()))
         expected_stdout, expected_stderr = map(norm_ws, [stdout, stderr])
         assert actual_stderr == expected_stderr
         assert actual_stdout == expected_stdout
@@ -54,18 +54,4 @@ def long_ps_tsv():
 0	18	1	0	22Oct14	??	3:01.72	/System/Library/CoreServices/powerd.bundle/powerd
 0	19	1	0	22Oct14	??	0:27.40	/usr/sbin/syslogd
     """
-
-@pytest.fixture
-def utils():
-    return TestUtils()
-
-class TestUtils:
-
-    def run(self, args, stdin="", stdout="", stderr=""):
-        p = sub.Popen(["tl"] + args.split(" "), stdin=sub.PIPE, stdout=sub.PIPE, stderr=sub.PIPE, universal_newlines=True)
-        actual_stdout, actual_stderr = map(norm_ws, p.communicate(stdin.lstrip()))
-        expected_stdout, expected_stderr = map(norm_ws, [stdout, stderr])
-        assert actual_stdout == expected_stdout
-        assert actual_stderr == expected_stderr
-
 

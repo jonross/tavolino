@@ -40,7 +40,7 @@ else:
 def main(argv):
 
     steps, options = parse_argv(argv)
-    lines = list(map(str.strip, sys.stdin))
+    lines = [line.strip() for line in sys.stdin]
     if len(lines) == 0:
         sys.exit(0)
 
@@ -183,7 +183,7 @@ class Table:
         values.  Optionally overwrite the existing column."""
         insert = self.replace_with if overwrite else self.insert_after
         for column in self.select(targets):
-            insert(column, function(map(convert, column.data)))
+            insert(column, function([convert(item) for item in column.data]))
 
     def replace_with(self, column, new_column):
         self.columns[self.index_of(column)] = self._wrap(new_column)
@@ -320,12 +320,12 @@ def do_neat(table):
         kind, converter = guess_type(column.data[:20])
         if kind in [int, float]:
             formatter = make_format(kind, True)
-            data = map(lambda cell: formatter(converter(cell)), column.data)
+            data = [formatter(converter(cell)) for cell in column.data]
             spacer = str.rjust
         else:
             spacer = str.ljust
             data = column.data
-        maxwidth = max(map(len, data))
+        maxwidth = max(len(cell) for cell in data)
         return [spacer(item, maxwidth) for item in data]
 
     table.suppress = True
