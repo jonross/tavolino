@@ -1,9 +1,8 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
-import BaseHTTPServer as http
 from collections import namedtuple
 from datetime import date, datetime, time
-from itertools import chain, imap, izip, ifilter, tee
+from itertools import chain, tee
 import json
 import locale
 import operator as op
@@ -31,7 +30,7 @@ Options = namedtuple("Options", "split_on join_on")
 
 # Are numbers like "1,000.00" or "1.000,00"
 locale.setlocale(locale.LC_ALL, "")
-if locale.format("%.2f", 1.0) == "1,00":
+if locale.format_string("%.2f", 1.0) == "1,00":
     NUMCOMMA, NUMDOT = ".", ","
 else:
     NUMCOMMA, NUMDOT = ",", "."
@@ -41,7 +40,7 @@ else:
 def main(argv):
 
     steps, options = parse_argv(argv)
-    lines = map(str.strip, sys.stdin)
+    lines = list(map(str.strip, sys.stdin))
     if len(lines) == 0:
         sys.exit(0)
 
@@ -62,25 +61,20 @@ def main(argv):
 
     # Split to rows then widen to max width.
 
-    rows = map(splitter, lines)
-    widest = max(map(len, rows))
-
-    def normalize(row):
-        if len(row) < widest:
-            return row + [None] * (widest - len(row))
-        return row
-
-    rows = map(normalize, rows)
+    rows = [splitter(line) for line in lines]
+    widest = max(len(row) for row in rows)
+    normalize = lambda row: row if len(row) == widest else row + [None] * (widest - len(row))
+    rows = [normalize(row) for row in rows]
 
     # Transpose to columns & run steps, then back to rows for output.
 
-    table = Table([list(c) for c in zip(*rows)])
+    table = Table(list(c) for c in zip(*rows))
     for step in steps:
         step(table)
 
     if table.columns and not table.suppress:
-        for row in izip(*(column.data for column in table.columns)):
-            print join_on.join(map(lambda x: "" if x is None else str(x), row))
+        for row in zip(*(column.data for column in table.columns)):
+            print(join_on.join(map(lambda x: "" if x is None else str(x), row)))
 
 ####################################################################################################
 
@@ -120,6 +114,9 @@ class Targets:
                 implicit = im
         return Targets(explicit, implicit)
 
+    def __str__(self):
+        return f"explicit={self.explicit}, implicit={self.implicit}"
+
 class Column:
 
     """A Table, below, is made up of these (obviously)"""
@@ -134,6 +131,9 @@ class Column:
 
     def clone(self):
         return Column(self.data[:])
+
+    def __str__(self):
+        return "shit"
 
 class Table:
 
@@ -164,7 +164,7 @@ class Table:
         index = self.index_of(name)
         if index is not None:
             return self.columns[index]
-        die("No column named " + name)
+        raise ValueError("No column named " + name)
 
     def index_of(self, thing):
         for index, column in enumerate(self.columns):
@@ -192,6 +192,9 @@ class Table:
     def _wrap(self, thing):
         return Column(thing) if type(thing) == list else thing
 
+    def __str__(self):
+        return "tabl" + ",,,,".join(map(str, self.columns))
+
 ####################################################################################################
 
 # A dict describing how to parse options for step names.
@@ -217,7 +220,6 @@ ARG_SPECS = {
     "neat":     [],
     "ord":      [],
     "per":      [("column expression", Targets.parse)],
-    "plot":     [],
     "redate":   [("column expression", Targets.parse), 
                  ("date format", str)],
     "round":    [("column expression", Targets.parse),
@@ -327,8 +329,8 @@ def do_neat(table):
         return [spacer(item, maxwidth) for item in data]
 
     table.suppress = True
-    for row in izip(*map(neaten, table.columns)):
-        print "  ".join(row)
+    for row in zip(*map(neaten, table.columns)):
+        print("  ".join(row))
 
 def do_ord(table):
     """Add an ordinal value (1-based) to the beginning of every line."""
@@ -378,24 +380,8 @@ def do_wiki(table):
         return column.data
 
     table.suppress = True
-    for row in izip(*map(neaten, table.columns)):
-        print "| " + " | ".join(row) + " |"
-
-####################################################################################################
-
-def do_plot(table):
-    httpd = http.HTTPServer(('', 9012), lambda: MyHandler(table))
-    httpd.serve_forever()
-
-class MyHandler(http.BaseHTTPRequestHandler):
-    def __init__(self, table):
-        self.table = table
-        http.BaseHTTPRequestHandler.__init__(self)
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
-        self.wfile.write("I heard " + self.path)
+    for row in zip(*map(neaten, table.columns)):
+        print("| " + " | ".join(row) + " |")
 
 ####################################################################################################
 
@@ -500,12 +486,12 @@ def notnone(x):
     return x is not None
 
 def coalesce(seq):
-    return next(ifilter(notnone, iter(seq)), None)
+    return next(filter(notnone, iter(seq)), None)
 
 def pairwise(seq):
     a, b = tee(seq)
     next(b, None)
-    return izip(a, b)
+    return zip(a, b)
 
 def with_prev(seq, first_prev=None):
     return pairwise(chain([first_prev], seq))
