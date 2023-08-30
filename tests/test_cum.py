@@ -6,7 +6,6 @@ def test_cum_missing_arg(run):
 def test_cum_invalid_column(run):
     run("cum x", stderr="Invalid column: x\n")
 
-@pytest.mark.skip
 def test_cum_ints(run):
     run("cum 1,4", stdin="""
         1 a b 6

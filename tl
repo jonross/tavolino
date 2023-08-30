@@ -74,7 +74,7 @@ def main(argv):
 
     if table.columns and not table.suppress:
         for row in zip(*(column.data for column in table.columns)):
-            print(join_on.join(map(lambda x: "" if x is None else str(x), row)))
+            print(join_on.join(to_str(cell) for cell in row))
 
 ####################################################################################################
 
@@ -132,15 +132,16 @@ class Column:
     def clone(self):
         return Column(self.data[:])
 
-    def __str__(self):
-        return "shit"
-
+    @classmethod
+    def of(cls, thing):
+        return cls(thing) if isinstance(thing, list) else thing
+    
 class Table:
 
     """A set of Columns, above (obviously)"""
 
     def __init__(self, columns):
-        self.columns = [self._wrap(c) for c in columns]
+        self.columns = [Column.of(c) for c in columns]
         # Column count
         self.width = None
         # Suppress final output (if a step has done custom output)
@@ -175,7 +176,7 @@ class Table:
         return None
 
     def insert_after(self, column, new_column):
-        self.columns.insert(1 + self.index_of(column), self._wrap(new_column))
+        self.columns.insert(1 + self.index_of(column), Column.of(new_column))
         self.reset()
 
     def derive(self, targets, function, overwrite=False):
@@ -186,14 +187,8 @@ class Table:
             insert(column, function([convert(item) for item in column.data]))
 
     def replace_with(self, column, new_column):
-        self.columns[self.index_of(column)] = self._wrap(new_column)
+        self.columns[self.index_of(column)] = Column.of(new_column)
         self.reset()
-
-    def _wrap(self, thing):
-        return Column(thing) if type(thing) == list else thing
-
-    def __str__(self):
-        return "tabl" + ",,,,".join(map(str, self.columns))
 
 ####################################################################################################
 
@@ -282,7 +277,7 @@ def do_ema(table, names, k):
 
 def do_per(table, targets):
     def percent(data):
-        total = sum(filter(notnone, data))
+        total = sum(filter(not_none, data))
         if total > 0:
             return [(0 if item is None else (item * 1.0 / total * 100)) for item in data]
         else:
@@ -290,12 +285,11 @@ def do_per(table, targets):
     table.derive(targets, percent)
 
 def do_round(table, names, places):
-    def _round(column):
-        return map(lambda value: round(float(value), places), column)
-    table.derive(names, _round, True)
+    rounder = lambda seq: [round(float(item), places) for item in seq]
+    table.derive(names, rounder, True)
 
 def do_cum(table, targets):
-    table.derive(targets, lambda data: remap(op.add, data, 0))
+    table.derive(targets, lambda data: list(remap(op.add, data, 0)))
 
 def do_dup(table, targets):
     table.derive(targets, lambda data: Column(data[:]))
@@ -435,22 +429,22 @@ def guess_separators(lines):
 
     return WHITESPACE.split, "\t"
 
-def guess_type(column):
+def guess_type(sample):
 
     """
     Given a sample of column values, try to guess the type; return the type class and a
     default conversion function.
     """
 
-    if len(column) == 0:
+    if len(sample) == 0:
         return str, str
 
-    column = map(convert, column)
-    if all(type(x) == int for x in column):
+    sample = map(convert, sample)
+    if all(type(x) == int for x in sample):
         return int, lambda x: convert(x, [locale.atoi])
-    elif all(type(x) in [float, int] for x in column):
+    elif all(type(x) in [float, int] for x in sample):
         return float, lambda x: convert(x, [locale.atof])
-    elif all(type(x) == date for x in column):
+    elif all(type(x) == date for x in sample):
         # TODO: handle multiple date input formats
         return date, lambda x: x.strptimetime("%Y-%m-%d")
     else:
@@ -482,11 +476,14 @@ def die(message):
     warn(message)
     sys.exit(1)
 
-def notnone(x):
+def not_none(x):
     return x is not None
 
 def coalesce(seq):
-    return next(filter(notnone, iter(seq)), None)
+    return next(filter(not_none, iter(seq)), None)
+
+def to_str(x):
+    return "" if x is None else str(x)
 
 def pairwise(seq):
     a, b = tee(seq)
